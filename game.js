@@ -1173,6 +1173,7 @@ function runShot(name, f) {
   const d = dailyCave(B.day);
   B.cave = d.cave; B.proof = d.proof; B.dailyParams = d.params || null;
   B.ghostTapes = [{ label: 'FOREMAN', color: '#7ad4e8', tape: d.proof.tape }];
+  B.rookie = false;         // shots ignore the profile's history; only onboard opts in
   if (name === 'intro') { B.time = 0.4; draw(); document.title = 'shot-ready'; return; }
   if (name === 'onboard') {
     B.rookie = true;
