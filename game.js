@@ -31,6 +31,7 @@ const B = {
   leadX: 0, leadY: 0, lastMove: 0,
   parts: [], fxRng: null, gemPunchAt: -9, exitOpenAt: -9,
   rookie: false, hintStage: 0, hintShownAt: 0, deathCause: null, touchVis: null,
+  boomCols: new Set(),
   day: null, dayN: 1, cave: null, proof: null,
   w: null,                  // live world
   tape: [],                 // my recorded inputs this attempt
@@ -135,6 +136,7 @@ function startAttempt() {
   B.parts = [];
   B.fxRng = makeRng((B.cave.seed ^ 0x5f3759df) >>> 0);
   B.gemPunchAt = -9; B.exitOpenAt = -9;
+  B.boomCols = new Set();
   B.hintStage = B.rookie ? 1 : 0;
   B.hintShownAt = 0;
   B.deathCause = null;
@@ -179,7 +181,7 @@ addEventListener('keydown', (e) => {
   if (k === 'm') { B.muted = !B.muted; if (master) master.gain.value = B.muted ? 0 : 0.4; }
   if (B.mode === 'intro' && (e.key === ' ' || e.key === 'Enter')) startAttempt();
   else if (B.mode === 'results' && (e.key === ' ' || e.key === 'Enter') && !resultsLocked()) startAttempt();
-  else if (B.mode === 'results' && k === 'c') copyShare();
+  else if (B.mode === 'results' && k === 'c') doShare();
   else if (B.mode === 'play' && k === 'r') startAttempt();
 });
 addEventListener('keyup', (e) => {
@@ -195,10 +197,24 @@ addEventListener('blur', () => {
   for (const k in keys) keys[k] = false;
 });
 
+// the SHARE button's hit zone — one definition shared by every input path,
+// kept in lockstep with the rect drawn in drawResults
+function shareZoneHit(clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  const x = (clientX - r.left) / r.width * W, y = (clientY - r.top) / r.height * H;
+  return x > W / 2 - 130 && x < W / 2 + 130 && y > H / 2 + 84 && y < H / 2 + 124;
+}
 let tId = null, tax = 0, tay = 0;
 canvas.addEventListener('touchstart', (e) => {
   e.preventDefault(); audio();
-  if (B.mode !== 'play') { if (B.mode === 'intro' || (B.mode === 'results' && !resultsLocked())) startAttempt(); return; }
+  if (B.mode !== 'play') {
+    const t0 = e.changedTouches[0];
+    // preventDefault above suppresses the synthesized click, so the button
+    // must be handled here for touch — a tap on SHARE shares, never restarts
+    if (B.mode === 'results' && B.result && t0 && shareZoneHit(t0.clientX, t0.clientY)) { doShare(); B.suppressRestart = B.time; return; }
+    if (B.mode === 'intro' || (B.mode === 'results' && !resultsLocked() && B.time - (B.suppressRestart || -9) > 0.3)) startAttempt();
+    return;
+  }
   if (tId !== null) return;
   const t = e.changedTouches[0];
   tId = t.identifier; tax = t.clientX; tay = t.clientY;
@@ -221,8 +237,11 @@ canvas.addEventListener('touchmove', (e) => {
 canvas.addEventListener('touchend', (e) => {
   for (const t of e.changedTouches) if (t.identifier === tId) { tId = null; touchHeld = 0; B.touchVis = null; }
 });
-canvas.addEventListener('mousedown', () => {
+canvas.addEventListener('mousedown', (e) => {
   audio();
+  // mousedown fires before click — a press on the SHARE button must not
+  // restart, or the click handler wakes up in 'play' mode and does nothing
+  if (B.mode === 'results' && B.result && shareZoneHit(e.clientX, e.clientY)) return;
   if (B.mode === 'intro' || (B.mode === 'results' && !resultsLocked())) startAttempt();
 });
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
@@ -243,7 +262,8 @@ function fmtT(ticks) {
 function shareText(res) {
   const m = medalFor(res.ticks);
   const url = `${location.origin}${location.pathname}#g=${B.day}.${encodeTape(res.tape)}`;
-  // strata row: 10 columns of the cave, each glyph = how you treated it
+  const dn = DIFF_NAMES[(B.dailyParams && B.dailyParams.D) || 3];
+  // the route story: 10 columns — untouched, dug, gems taken, TNT let loose
   let row = '';
   for (let cxx = 0; cxx < 10; cxx++) {
     const x0 = 1 + Math.floor(cxx * (CFG.CW - 2) / 10), x1 = 1 + Math.floor((cxx + 1) * (CFG.CW - 2) / 10);
@@ -253,14 +273,28 @@ function shareText(res) {
       if (B.cave.grid[y][x] === T.DIRT && B.w.grid[y][x] !== T.DIRT) dug++;
       if (B.cave.grid[y][x] === T.GEM && B.w.grid[y][x] !== T.GEM) gem++;
     }
-    row += gem > 0 ? '💎' : dug / Math.max(1, tot) > 0.12 ? '🟫' : '⬛';
+    row += B.boomCols.has(cxx) ? '🟧' : gem > 0 ? '💎' : dug / Math.max(1, tot) > 0.12 ? '🟫' : '⬛';
   }
-  return `DAILY DIG #${B.dayN} ⛏️\n${m.e} ${fmtT(res.ticks)} · ${res.attempts} attempt${res.attempts === 1 ? '' : 's'} · 👷 ${fmtT(B.proof.ticks)}\n${row}\nrace my ghost: ${url}`;
+  const boss = res.ticks <= B.proof.ticks;
+  const vs = boss ? `outdug the FOREMAN (${fmtT(B.proof.ticks)})` : `FOREMAN ${fmtT(B.proof.ticks)}`;
+  const s = store();
+  const streakLine = (s.streak || 0) >= 2 ? `\n🔥 ${s.streak}-day streak` : '';
+  return `DAILY DIG #${B.dayN} — ${dn} ⛏️\n${m.e} ${fmtT(res.ticks)} in ${res.attempts} attempt${res.attempts === 1 ? '' : 's'} · ${vs}\n${row}${streakLine}\nrace my ghost: ${url}`;
 }
-function copyShare() {
+function doShare() {
   if (!B.result) return;
-  try { navigator.clipboard.writeText(shareText(B.result)); B.copied = B.time; } catch {}
+  const text = shareText(B.result);
+  const copy = () => { try { navigator.clipboard.writeText(text); B.copied = B.time; B.shareMode = 'copy'; } catch {} };
+  if (navigator.share) {
+    // confirm only on resolve — a cancelled share sheet must not claim SHARED;
+    // a genuine failure (not the user backing out) falls back to the clipboard
+    navigator.share({ text }).then(() => { B.copied = B.time; B.shareMode = 'share'; })
+      .catch((err) => { if (!err || err.name !== 'AbortError') copy(); });
+    return;
+  }
+  copy();
 }
+
 
 // ---------------------------------------------------------------------------
 // fx — every sim event earns pixels. Seeded rng keeps shots byte-stable.
@@ -356,6 +390,7 @@ function update(dt) {
     if (B.hintStage === 1 && input > 0) { B.hintStage = 2; B.hintShownAt = B.time; }
     for (const ev of B.w.events) {
       if (ev.t === 'gem' && B.hintStage === 2) { B.hintStage = 3; B.hintShownAt = B.time; }
+      if (ev.t === 'boom') B.boomCols.add(Math.min(9, Math.max(0, Math.floor((ev.x - 1) * 10 / (CFG.CW - 2)))));
       if (ev.t === 'crush') B.deathCause = 'crush';
       else if (ev.t === 'bite') B.deathCause = 'bite';
       else if (ev.t === 'boom' && !B.w.p.alive && !B.deathCause) B.deathCause = 'boom';
@@ -1116,18 +1151,26 @@ function drawResults() {
     ctx.font = `700 14px Verdana, sans-serif`; ctx.fillStyle = PAL.paper;
     ctx.fillText(res.ticks <= B.proof.ticks ? 'You outdug the Foreman. The company is watching.' :
       'Share your ghost — the link IS the replay.', W / 2, H / 2 - 40);
-    // share box
-    ctx.fillStyle = 'rgba(122,212,232,0.12)';
-    ctx.beginPath(); ctx.roundRect(W / 2 - 280, H / 2 - 16, 560, 66, 10); ctx.fill();
+    // the share slip: exactly what leaves the building, plus the button
+    ctx.fillStyle = 'rgba(122,212,232,0.1)';
+    ctx.beginPath(); ctx.roundRect(W / 2 - 290, H / 2 - 20, 580, 88, 10); ctx.fill();
     ctx.strokeStyle = 'rgba(122,212,232,0.5)'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.roundRect(W / 2 - 280, H / 2 - 16, 560, 66, 10); ctx.stroke();
-    ctx.font = `700 13px ${MONO}`; ctx.fillStyle = PAL.blueprint;
+    ctx.beginPath(); ctx.roundRect(W / 2 - 290, H / 2 - 20, 580, 88, 10); ctx.stroke();
     const st = shareText(res).split('\n');
-    ctx.fillText(st[0] + '  ·  ' + st[1], W / 2, H / 2 + 8);
-    ctx.font = `700 16px ${MONO}`;
-    ctx.fillText(st[2], W / 2, H / 2 + 34);
-    label(B.time - B.copied < 2 && B.copied > 0 ? 'COPIED — go make someone lose their lunch break' : (IS_TOUCH ? 'TAP SHARE below' : 'C TO COPY SHARE + GHOST LINK'), W / 2, H / 2 + 84, 12, B.time - B.copied < 2 && B.copied > 0 ? PAL.good : PAL.blueprint, 'center');
-    label(IS_TOUCH ? 'TAP TO DIG AGAIN' : 'SPACE TO DIG AGAIN', W / 2, H / 2 + 128, 14, '#ffffff', 'center');
+    ctx.font = `700 13px ${MONO}`; ctx.textAlign = 'center'; ctx.fillStyle = PAL.blueprint;
+    ctx.fillText(st[0], W / 2, H / 2 + 2);
+    ctx.fillText(st[1], W / 2, H / 2 + 22);
+    ctx.font = `700 18px ${MONO}`;
+    ctx.fillText(st[2], W / 2, H / 2 + 48);
+    // the button
+    const shY = H / 2 + 84, copied = B.time - B.copied < 2 && B.copied > 0;
+    ctx.fillStyle = copied ? 'rgba(124,232,138,0.18)' : 'rgba(122,212,232,0.18)';
+    ctx.beginPath(); ctx.roundRect(W / 2 - 130, shY, 260, 40, 10); ctx.fill();
+    ctx.strokeStyle = copied ? '#7ce88a' : PAL.blueprint; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(W / 2 - 130, shY, 260, 40, 10); ctx.stroke();
+    label(copied ? (B.shareMode === 'share' ? 'SHARED' : 'COPIED — GO POST IT') : (navigator.share ? 'SHARE MY GHOST' : 'COPY SHARE + GHOST LINK'), W / 2, shY + 26, 13, copied ? PAL.good : PAL.blueprint, 'center');
+    if (!IS_TOUCH) label('C ALSO WORKS', W / 2 + 200, shY + 26, 9, 'rgba(214,192,156,0.5)', 'center');
+    label(IS_TOUCH ? 'TAP ANYWHERE ELSE TO DIG AGAIN' : 'SPACE TO DIG AGAIN', W / 2, shY + 66, 13, '#ffffff', 'center');
   } else {
     ctx.font = '900 36px "Arial Black", Arial, sans-serif';
     ctx.fillStyle = PAL.danger;
@@ -1147,9 +1190,7 @@ function drawBroken() {
 // results-screen share tap zone (touch)
 canvas.addEventListener('click', (e) => {
   if (B.mode !== 'results' || !B.result) return;
-  const r = canvas.getBoundingClientRect();
-  const y = (e.clientY - r.top) / r.height * H;
-  if (y > H / 2 - 16 && y < H / 2 + 96) copyShare();
+  if (shareZoneHit(e.clientX, e.clientY)) { doShare(); B.suppressRestart = B.time; }
 });
 
 // ---------------------------------------------------------------------------
