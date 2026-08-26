@@ -113,7 +113,7 @@ function loadDay() {
   B.dayN = dayNumber(day);
   const d = dailyCave(day);
   if (!d) { B.mode = 'broken'; return; }
-  B.cave = d.cave; B.proof = d.proof;
+  B.cave = d.cave; B.proof = d.proof; B.dailyParams = d.params || null;
   B.ghostTapes = [{ label: 'FOREMAN', color: '#7ad4e8', tape: d.proof.tape }];
   if (ghostParam) {
     const tape = decodeTape(ghostParam);
@@ -729,7 +729,49 @@ function draw() {
 }
 
 // ---------------------------------------------------------------------------
-// chrome
+// chrome — the company paperwork: parchment labels, mono values, brass rules
+const DIFF_NAMES = [null, 'GENTLE', 'STEADY', 'FIRM', 'STERN', 'HARSH', 'MEAN'];
+function nextShiftIn() {
+  if (B.shotMode) return '07:14:22';
+  const now = Date.now();
+  const next = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate() + 1);
+  const s = Math.max(0, (next - now) / 1000 | 0);
+  return `${String(s / 3600 | 0).padStart(2, '0')}:${String((s / 60 | 0) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+function medalTargets() {
+  const par = B.proof.ticks;
+  return [
+    { name: 'SHIFT BOSS', t: par },
+    { name: 'GOLD', t: Math.ceil(par * 1.7) },
+    { name: 'SILVER', t: Math.ceil(par * 2.8) },
+  ];
+}
+function value(txt, x, y, size = 26, color = PAL.paper, align = 'left') {
+  ctx.font = `800 ${size}px ${MONO}`;
+  ctx.textAlign = align;
+  ctx.fillStyle = color;
+  ctx.fillText(txt, x, y);
+}
+function brassRule(x, y, w2) {
+  const g = ctx.createLinearGradient(x, 0, x + w2, 0);
+  g.addColorStop(0, 'rgba(201,163,92,0)'); g.addColorStop(0.5, 'rgba(201,163,92,0.7)'); g.addColorStop(1, 'rgba(201,163,92,0)');
+  ctx.fillStyle = g; ctx.fillRect(x, y, w2, 1.5);
+}
+function stamp(txt, x, y, color = '#b8563c') {
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(-0.06);
+  ctx.font = '900 15px "Arial Black", Arial, sans-serif';
+  ctx.letterSpacing = '3px';
+  ctx.textAlign = 'center';
+  const w2 = ctx.measureText(txt).width + 24;
+  ctx.globalAlpha = 0.85;
+  ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+  ctx.strokeRect(-w2 / 2, -14, w2, 24);
+  ctx.fillStyle = color;
+  ctx.fillText(txt, 0, 4);
+  ctx.letterSpacing = '0px';
+  ctx.restore();
+}
 function label(txt, x, y, size = 12, color = 'rgba(214,192,156,0.9)', align = 'left') {
   ctx.font = `700 ${size}px Verdana, sans-serif`;
   ctx.letterSpacing = '2px';
@@ -741,13 +783,19 @@ function label(txt, x, y, size = 12, color = 'rgba(214,192,156,0.9)', align = 'l
 function drawMarquee() {
   ctx.fillStyle = '#171008'; ctx.fillRect(0, 0, W, MQ);
   ctx.fillStyle = 'rgba(201,163,92,0.55)'; ctx.fillRect(0, MQ - 2, W, 2);
+  // company mark
+  ctx.fillStyle = '#c9a35c';
+  ctx.beginPath(); ctx.moveTo(26, 12); ctx.lineTo(38, 12); ctx.lineTo(32, 30); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#171008'; ctx.fillRect(30.5, 14, 3, 10);
+  label('DIG CO.', 46, 20, 10, 'rgba(201,163,92,0.9)');
+  label(B.day, 46, 33, 9, 'rgba(214,192,156,0.55)');
   ctx.font = `800 18px "Arial Black", Arial, sans-serif`;
   ctx.letterSpacing = '4px'; ctx.textAlign = 'center';
   ctx.fillStyle = '#e8c987';
   ctx.fillText(`DAILY DIG — SHIFT ${B.dayN}`, W / 2, 28);
   ctx.letterSpacing = '0px';
-  label(B.day, 24, 27, 12, 'rgba(214,192,156,0.8)');
-  if (B.w) label(IS_TOUCH ? 'DRAG TO DIG' : 'WASD / ARROWS · R RESTART · M MUTE', W - 24, 27, 10, 'rgba(214,192,156,0.6)', 'right');
+  label('NEXT SHIFT', W - 24, 18, 9, 'rgba(214,192,156,0.55)', 'right');
+  value(nextShiftIn(), W - 24, 33, 13, 'rgba(122,212,232,0.85)', 'right');
 }
 function drawHUD() {
   const HY = H - HUD_H;
@@ -755,35 +803,53 @@ function drawHUD() {
   ctx.fillStyle = 'rgba(201,163,92,0.85)'; ctx.fillRect(0, HY, W, 2);
   const w = B.w;
   if (!w) return;
-  // gems
-  label('GEMS', 32, HY + 30);
-  ctx.font = `800 26px ${MONO}`; ctx.textAlign = 'left';
-  ctx.fillStyle = w.exitOpen ? PAL.good : PAL.paper;
-  ctx.fillText(`${w.gems}/${w.quota}`, 32, HY + 64);
-  // time vs par
-  label('TIME', 260, HY + 30);
-  ctx.font = `800 26px ${MONO}`;
-  ctx.fillStyle = w.ticks <= B.proof.ticks ? PAL.blueprint : PAL.paper;
-  ctx.fillText(fmtT(w.ticks), 260, HY + 64);
-  label(`PAR ${fmtT(B.proof.ticks)}`, 400, HY + 58, 11, 'rgba(122,212,232,0.75)');
-  // ghosts status
-  let gy2 = HY + 30;
+  // zone dividers: a manifest, not a soup
+  ctx.fillStyle = 'rgba(201,173,120,0.18)';
+  for (const zx of [238, 560, 850, 1090]) ctx.fillRect(zx, HY + 14, 1, HUD_H - 28);
+
+  // zone 1 — GEMS with the jewel itself
+  label('GEMS', 32, HY + 28);
+  ctx.save();
+  ctx.translate(52, HY + 52);
+  const F2 = (pts, col) => { ctx.beginPath(); pts.forEach(([a, b], i) => i ? ctx.lineTo(a, b) : ctx.moveTo(a, b)); ctx.closePath(); ctx.fillStyle = col; ctx.fill(); };
+  F2([[-9, -6], [9, -6], [13, 0], [0, 12], [-13, 0]], '#2b9cc4');
+  F2([[-9, -6], [9, -6], [7, 0], [-7, 0]], '#bdeeff');
+  F2([[-7, 0], [7, 0], [0, 12]], '#66d8ff');
+  ctx.restore();
+  value(`${w.gems}/${w.quota}`, 84, HY + 64, 26, w.exitOpen ? PAL.good : PAL.paper);
+  if (w.exitOpen) label('EXIT OPEN', 32, HY + 80, 9, PAL.good);
+
+  // zone 2 — TIME with live pace vs the Foreman and the next medal target
+  label('TIME', 262, HY + 28);
+  value(fmtT(w.ticks), 262, HY + 64, 26, w.ticks <= B.proof.ticks ? PAL.blueprint : PAL.paper);
+  const delta = w.ticks - B.proof.ticks;
+  const ahead = delta <= 0;
+  value((ahead ? '▲ ' : '▼ ') + fmtT(Math.abs(delta)), 380, HY + 52, 14, ahead ? '#7ce88a' : '#d88a6a');
+  label('VS FOREMAN', 380, HY + 66, 8, 'rgba(214,192,156,0.55)');
+  const nextM = medalTargets().find((m) => w.ticks <= m.t);
+  label(nextM ? `ON PACE FOR ${nextM.name} — UNDER ${fmtT(nextM.t)}` : 'BRONZE PACE — JUST CLEAR IT', 262, HY + 82, 9, nextM && nextM.name === 'SHIFT BOSS' ? PAL.blueprint : 'rgba(214,192,156,0.7)');
+
+  // zone 3 — the race
+  let gy2 = HY + 32;
   for (const g of B.ghosts) {
-    label(g.label, 620, gy2, 10, g.color);
-    label(g.world.done ? 'CLEAR ' + fmtT(g.world.ticks) : g.world.dead ? 'BURIED' : fmtT(g.world.ticks), 700, gy2, 10, 'rgba(243,231,200,0.8)');
-    gy2 += 22;
+    ctx.fillStyle = g.color;
+    ctx.fillRect(584, gy2 - 9, 8, 8);
+    label(g.label, 600, gy2, 10, g.color);
+    value(g.world.done ? fmtT(g.world.ticks) : g.world.dead ? '—' : fmtT(g.world.ticks), 700, gy2, 13, 'rgba(243,231,200,0.85)');
+    if (g.world.done) label('CLEAR', 760, gy2, 8, 'rgba(243,231,200,0.5)');
+    gy2 += 24;
   }
-  // attempts + streak + best
-  label('ATTEMPT', 900, HY + 30);
-  ctx.font = `800 20px ${MONO}`; ctx.fillStyle = PAL.paper;
-  ctx.fillText(String(B.attempts), 900, HY + 60);
-  label('STREAK', 1020, HY + 30);
-  ctx.font = `800 20px ${MONO}`; ctx.fillStyle = B.streak.n > 0 ? PAL.good : PAL.paper;
-  ctx.fillText(`${B.streak.n}🔥`.replace('🔥', ''), 1020, HY + 60);
+
+  // zone 4 — the ledger
+  label('ATTEMPT', 874, HY + 28);
+  value(String(B.attempts), 874, HY + 60, 20);
+  label('STREAK', 980, HY + 28);
+  value(String(B.streak.n), 980, HY + 60, 20, B.streak.n > 0 ? PAL.good : PAL.paper);
+
+  // zone 5 — best + next shift
   if (B.best) {
-    label('BEST', 1140, HY + 30);
-    ctx.font = `800 20px ${MONO}`; ctx.fillStyle = PAL.paper;
-    ctx.fillText(fmtT(B.best.ticks), 1140, HY + 60);
+    label('BEST', 1114, HY + 28);
+    value(fmtT(B.best.ticks), 1114, HY + 60, 20);
   }
 }
 function drawBanner() {
@@ -808,30 +874,59 @@ function panel(x, y, w2, h2) {
   ctx.beginPath(); ctx.roundRect(x, y, w2, h2, 14); ctx.fill();
   ctx.strokeStyle = 'rgba(201,163,92,0.6)'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.roundRect(x + 3, y + 3, w2 - 6, h2 - 6, 11); ctx.stroke();
+  ctx.fillStyle = 'rgba(201,163,92,0.5)';
+  for (const [rx, ry] of [[x + 14, y + 14], [x + w2 - 14, y + 14], [x + 14, y + h2 - 14], [x + w2 - 14, y + h2 - 14]]) {
+    ctx.beginPath(); ctx.arc(rx, ry, 2.2, 0, 7); ctx.fill();
+  }
 }
 function drawIntro() {
-  panel(W / 2 - 330, H / 2 - 190, 660, 380);
+  const PX = W / 2 - 350, PY = H / 2 - 205, PW = 700, PH = 410;
+  panel(PX, PY, PW, PH);
+  // header band: the company letterhead
+  ctx.fillStyle = 'rgba(201,163,92,0.12)';
+  ctx.fillRect(PX + 8, PY + 8, PW - 16, 64);
+  label('DIG CO. — DAILY WORK ORDER', W / 2, PY + 30, 10, 'rgba(201,163,92,0.9)', 'center');
   ctx.textAlign = 'center';
-  ctx.font = '900 44px "Arial Black", Arial, sans-serif';
+  ctx.font = '900 38px "Arial Black", Arial, sans-serif';
   ctx.letterSpacing = '6px';
-  const wm = ctx.createLinearGradient(0, H / 2 - 140, 0, H / 2 - 96);
+  const wm = ctx.createLinearGradient(0, PY + 34, 0, PY + 66);
   wm.addColorStop(0, '#fff3d0'); wm.addColorStop(0.5, '#ffd97a'); wm.addColorStop(1, '#b0802e');
   ctx.fillStyle = wm;
-  ctx.fillText('DAILY DIG', W / 2, H / 2 - 100);
+  ctx.fillText('DAILY DIG', W / 2, PY + 62);
   ctx.letterSpacing = '0px';
-  label(`SHIFT ${B.dayN} — ${B.day}`, W / 2, H / 2 - 62, 14, PAL.ink, 'center');
-  label('one cave · the whole world · every day', W / 2, H / 2 - 34, 12, 'rgba(214,192,156,0.8)', 'center');
-  ctx.font = `700 15px Verdana, sans-serif`; ctx.fillStyle = PAL.paper; ctx.textAlign = 'center';
-  ctx.fillText(`Dig the quota of ${B.proof ? B.proof.quota : '—'} gems, reach the exit, beat the clock.`, W / 2, H / 2 + 4);
-  ctx.fillText(`The FOREMAN cleared it in ${fmtT(B.proof.ticks)} — race his ghost.`, W / 2, H / 2 + 30);
+  brassRule(PX + 40, PY + 80, PW - 80);
+  // the order fields
+  const fy = PY + 112;
+  label('SHIFT', PX + 60, fy, 10); value('#' + B.dayN, PX + 60, fy + 26, 22);
+  label('DATE', PX + 200, fy, 10); value(B.day, PX + 200, fy + 26, 16);
+  label('QUOTA', PX + 372, fy, 10); value(`${B.proof ? B.proof.quota : '—'} GEMS`, PX + 372, fy + 26, 16);
+  label('FOREMAN', PX + 530, fy, 10); value(fmtT(B.proof.ticks), PX + 530, fy + 26, 16, PAL.blueprint);
+  stamp(DIFF_NAMES[(B.proof && B.dailyParams && B.dailyParams.D) || 3] || 'FIRM', PX + PW - 96, PY + 36);
+  brassRule(PX + 40, fy + 44, PW - 80);
+  // medal table
+  const my = fy + 74;
+  label('TODAY PAYS', PX + 60, my, 10);
+  const meds = medalTargets();
+  const medCols = [['SHIFT BOSS', PAL.blueprint], ['GOLD', '#ffd76a'], ['SILVER', '#c8c8d0']];
+  for (let i = 0; i < 3; i++) {
+    label(medCols[i][0], PX + 180 + i * 160, my, 9, medCols[i][1]);
+    value('≤ ' + fmtT(meds[i].t), PX + 180 + i * 160, my + 20, 14);
+  }
+  brassRule(PX + 40, my + 36, PW - 80);
+  // the race + the streak
+  const ry3 = my + 62;
   if (B.ghostTapes && B.ghostTapes.length > 1) {
-    ctx.fillStyle = '#ff8ad0';
-    ctx.fillText(`A RIVAL's ghost is waiting: ${fmtT(B.ghostTapes[1].ticks)}. Beat it.`, W / 2, H / 2 + 56);
+    label(`A RIVAL'S GHOST IS ON SITE — ${fmtT(B.ghostTapes[1].ticks)}. BEAT IT.`, W / 2, ry3, 11, '#ff8ad0', 'center');
+  } else {
+    label('THE FOREMAN DIGS BESIDE YOU. OUTPACE HIM.', W / 2, ry3, 11, 'rgba(122,212,232,0.85)', 'center');
   }
+  if (B.streak.n > 0) label(`STREAK ${B.streak.n} — CLEAR TODAY TO KEEP IT`, W / 2, ry3 + 22, 10, PAL.good, 'center');
+  // clock in
   if ((B.time * 1.6 | 0) % 2 === 0) {
-    label(IS_TOUCH ? 'TAP TO CLOCK IN' : 'SPACE TO CLOCK IN', W / 2, H / 2 + 110, 18, '#ffffff', 'center');
+    label(IS_TOUCH ? 'TAP TO CLOCK IN' : 'SPACE TO CLOCK IN', W / 2, PY + PH - 74, 18, '#ffffff', 'center');
   }
-  label('watch your head — rocks fall, props snap, TNT is TNT', W / 2, H / 2 + 150, 10, 'rgba(214,192,156,0.6)', 'center');
+  label(IS_TOUCH ? 'DRAG ANYWHERE TO DIG' : 'WASD / ARROWS DIG · R RESTART · M MUTE', W / 2, PY + PH - 44, 10, 'rgba(214,192,156,0.7)', 'center');
+  label('NEXT SHIFT IN ' + nextShiftIn(), W / 2, PY + PH - 22, 9, 'rgba(122,212,232,0.6)', 'center');
 }
 function drawResults() {
   const res = B.result;
@@ -843,8 +938,9 @@ function drawResults() {
     const m = medalFor(res.ticks);
     ctx.font = '900 36px "Arial Black", Arial, sans-serif';
     ctx.fillStyle = PAL.good;
-    ctx.fillText(`${m.name} — ${fmtT(res.ticks)}`, W / 2, H / 2 - 110);
-    label(`Foreman ${fmtT(B.proof.ticks)} · attempt ${res.attempts} · streak ${B.streak.n}`, W / 2, H / 2 - 74, 13, PAL.ink, 'center');
+    ctx.fillText(fmtT(res.ticks), W / 2, H / 2 - 110);
+    stamp(m.name, W / 2 + 190, H / 2 - 122, m.name === 'SHIFT BOSS' ? '#3c9ab8' : '#b8563c');
+    label(`FOREMAN ${fmtT(B.proof.ticks)} · ATTEMPT ${res.attempts} · STREAK ${B.streak.n} · NEXT SHIFT ${nextShiftIn()}`, W / 2, H / 2 - 74, 11, PAL.ink, 'center');
     ctx.font = `700 14px Verdana, sans-serif`; ctx.fillStyle = PAL.paper;
     ctx.fillText(res.ticks <= B.proof.ticks ? 'You outdug the Foreman. The company is watching.' :
       'Share your ghost — the link IS the replay.', W / 2, H / 2 - 40);
@@ -896,10 +992,11 @@ function stepWorld(n, inputFn) {
   snapCam(true);
 }
 function runShot(name, f) {
+  B.shotMode = true;
   B.day = q.get('day') || '2026-08-03';
   B.dayN = dayNumber(B.day);
   const d = dailyCave(B.day);
-  B.cave = d.cave; B.proof = d.proof;
+  B.cave = d.cave; B.proof = d.proof; B.dailyParams = d.params || null;
   B.ghostTapes = [{ label: 'FOREMAN', color: '#7ad4e8', tape: d.proof.tape }];
   if (name === 'intro') { B.time = 0.4; draw(); document.title = 'shot-ready'; return; }
   if (name === 'map') {
