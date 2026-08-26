@@ -16,6 +16,9 @@ export const CFG = {
   replayCap: 6000,         // hard cap on recorded ticks
 };
 
+// bump when generation or acceptance changes: invalidates seed-hint caches
+export const GENV = 3;
+
 // ---------------------------------------------------------------------------
 // deterministic primitives
 export function fnv(str) {
@@ -449,19 +452,33 @@ function foremanStep(w) {
 // ---------------------------------------------------------------------------
 // the daily rule: first candidate seed whose cave the Foreman clears.
 // Every client derives and verifies this independently — provable fairness.
-export function dailyCave(day) {
+function tryAttempt(base, P, i) {
+  const cave = generate((base + i * 0x9E3779B9) >>> 0, P);
+  // editorial gates before we even bother the Foreman
+  let space = 0;
+  for (const row of cave.grid) for (const c of row) if (c === T.SPACE) space++;
+  if (space / (CFG.CW * CFG.CH) > P.maxSpaceFrac) return null;
+  const proof = solve(cave);
+  if (!proof.cleared) return null;
+  if (proof.ticks < P.minPar) return null;      // too easy is also broken
+  return { cave, proof, attempt: i, params: P };
+}
+
+// `hint` is an untrusted shortcut: the attempt index this device accepted
+// last time (cached keyed by GENV + day). A valid hint skips the rejected
+// candidates; a wrong one falls through to the full scan. A tampered hint
+// only hurts its own device — a non-canonical cave self-quarantines because
+// its tapes fail replay-verification on every other client.
+export function dailyCave(day, hint) {
   const base = fnv('dailydig:' + day);
   const P = dayParams(day);
+  if (Number.isInteger(hint) && hint >= 0 && hint < CFG.seedTries) {
+    const got = tryAttempt(base, P, hint);
+    if (got) return got;
+  }
   for (let i = 0; i < CFG.seedTries; i++) {
-    const cave = generate((base + i * 0x9E3779B9) >>> 0, P);
-    // editorial gates before we even bother the Foreman
-    let space = 0;
-    for (const row of cave.grid) for (const c of row) if (c === T.SPACE) space++;
-    if (space / (CFG.CW * CFG.CH) > P.maxSpaceFrac) continue;
-    const proof = solve(cave);
-    if (!proof.cleared) continue;
-    if (proof.ticks < P.minPar) continue;      // too easy is also broken
-    return { cave, proof, attempt: i, params: P };
+    const got = tryAttempt(base, P, i);
+    if (got) return got;
   }
   return null;
 }

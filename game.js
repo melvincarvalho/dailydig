@@ -2,7 +2,7 @@
 // The sim lives in core.js; this file may read it and may never steer it.
 import {
   CFG, T, dayString, dayNumber, dailyCave, newWorld, tick, solve,
-  encodeTape, decodeTape, runTape, makeRng,
+  encodeTape, decodeTape, runTape, makeRng, GENV,
 } from './core.js';
 // (net.js is dynamically imported on first board use — the core stays offline-pure)
 
@@ -195,8 +195,14 @@ function loadDay() {
   }
   B.day = day;
   B.dayN = dayNumber(day);
-  const d = dailyCave(day);
+  let hint = null;
+  const hintKey = `dailydig_hint_${GENV}_${day}`;
+  try { const h = localStorage.getItem(hintKey); if (h !== null) hint = parseInt(h, 10); } catch {}
+  const t0 = performance.now();
+  const d = dailyCave(day, hint);
   if (!d) { B.mode = 'broken'; return; }
+  B.bootMs = Math.round(performance.now() - t0);
+  try { localStorage.setItem(hintKey, String(d.attempt)); } catch {}
   B.cave = d.cave; B.proof = d.proof; B.dailyParams = d.params || null;
   B.ghostTapes = [{ label: 'FOREMAN', color: '#7ad4e8', tape: d.proof.tape }];
   if (ghostParam) {
@@ -1048,14 +1054,19 @@ async function openBoard(from) {
     const raw = await n.fetchBoard(B.day);
     // physics is the referee: replay every claim before it ranks
     const verified = [];
+    let failed = 0;
     for (const e of raw) {
       const tape = decodeTape(e.tape);
-      if (!tape) continue;
+      if (!tape) { failed++; continue; }
       const r = runTape(B.cave, tape);
       if (r.cleared && r.ticks === e.ticks) verified.push(e);
+      else failed++;
     }
     verified.sort((a, b) => a.ticks - b.ticks);
     B.board = verified.slice(0, 50);
+    // when MOST fetched claims fail replay on this device, the likely fault
+    // is the local cave (a stale or tampered seed-hint cache), not the field
+    B.boardSuspect = failed > 0 && failed * 2 > raw.length;
     B.boardState = 'ok';
   } catch {
     B.boardState = 'offline';
@@ -1115,6 +1126,9 @@ function drawBoard() {
     label(`POST MY ${fmtT(B.result.ticks)}`, W / 2, PY + PH - 68, 12, PAL.blueprint, 'center');
   } else if (B.posted) {
     label('POSTED — your tape is on the wire, verifiable by anyone', W / 2, PY + PH - 74, 10, PAL.good, 'center');
+  }
+  if (B.boardState === 'ok' && B.boardSuspect) {
+    label('MOST POSTED SHIFTS FAIL REPLAY HERE — your cave may be out of date. Clear site data and reload.', W / 2, PY + PH - 44, 9, PAL.danger, 'center');
   }
   label('B OR ESC TO CLOSE', W / 2, PY + PH - 22, 9, 'rgba(214,192,156,0.6)', 'center');
 }
