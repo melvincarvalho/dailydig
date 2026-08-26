@@ -18,7 +18,7 @@ const MONO = '"Courier New", monospace';
 // for the company paperwork (HUD chrome), gems own the saturated pops
 const PAL = {
   earth: '#7a5a3a', earthDark: '#5d452f',
-  bgTop: '#171009', bgDeep: '#0c0805',
+  bgTop: '#14100c', bgDeep: '#0a0806',
   gem: '#3fd2ff', crate: '#e8a13c', prop: '#b0854e',
   paper: '#f3e7c8', ink: '#c9a35c', blueprint: '#7ad4e8',
   danger: '#ff6b5e', good: '#ffd76a',
@@ -313,6 +313,66 @@ function update(dt) {
 
 // ---------------------------------------------------------------------------
 // world rendering
+const lightC = document.createElement('canvas');
+lightC.width = VW / 2; lightC.height = VH / 2;
+const lctx = lightC.getContext('2d');
+function drawLighting(w, lerp, shx, shy) {
+  const s = 0.5;
+  lctx.globalCompositeOperation = 'source-over';
+  lctx.fillStyle = 'rgb(152,134,112)';
+  lctx.fillRect(0, 0, lightC.width, lightC.height);
+  lctx.globalCompositeOperation = 'lighter';
+  const light = (wx, wy, r, col, a) => {
+    const lx = (wx - B.cam.x + shx) * s, ly = (wy - B.cam.y + shy) * s;
+    if (lx < -r * s || ly < -r * s || lx > lightC.width + r * s || ly > lightC.height + r * s) return;
+    const g = lctx.createRadialGradient(lx, ly, 0, lx, ly, r * s);
+    g.addColorStop(0, col.replace('A)', a + ')')); g.addColorStop(1, 'rgba(0,0,0,0)');
+    lctx.fillStyle = g;
+    lctx.beginPath(); lctx.arc(lx, ly, r * s, 0, 7); lctx.fill();
+  };
+  const p = w.p;
+  const plx = (p.px + (p.x - p.px) * lerp) * TS + TS / 2, ply = (p.py + (p.y - p.py) * lerp) * TS + TS / 2;
+  const breathe = 0.985 + 0.012 * Math.sin(B.time * 9);
+  light(plx, ply, 270 * breathe, 'rgba(255,233,200,A)', 1.0);
+  const x0 = Math.max(0, B.cam.x / TS - 2 | 0), x1 = Math.min(CFG.CW, (B.cam.x + VW) / TS + 3 | 0);
+  const y0 = Math.max(0, B.cam.y / TS - 2 | 0), y1 = Math.min(CFG.CH, (B.cam.y + VH) / TS + 3 | 0);
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const c = w.grid[y][x];
+    if (c === T.GEM) light(x * TS + TS / 2, y * TS + TS / 2, 66, 'rgba(63,210,255,A)', 0.55);
+    else if (c === T.EXIT && w.exitOpen) light(x * TS + TS / 2, y * TS + TS / 2, 190, 'rgba(255,215,106,A)', 0.85);
+    else if (c === T.CRATE) light(x * TS + TS / 2, y * TS + TS / 2, 44, 'rgba(255,160,60,A)', 0.22);
+  }
+  for (const e of w.gnashers) light(e.x * TS + TS / 2, e.y * TS + TS / 2, 90, 'rgba(255,70,50,A)', 0.5);
+  for (const ev of w.events) if (ev.t === 'boom') light(ev.x * TS + TS / 2, ev.y * TS + TS / 2, 260, 'rgba(255,240,210,A)', 0.95);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, MQ, VW, VH); ctx.clip();
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.drawImage(lightC, 0, MQ, VW, VH);
+  ctx.restore();
+}
+
+// objects sit in excavated pockets of the same earth, never on black stickers
+function pocket(x, y) {
+  const px = x * TS, py = y * TS;
+  const tex = dirtTexture();
+  ctx.save();
+  ctx.globalAlpha = 0.82;
+  ctx.drawImage(tex, (x % 8) * TS, (y % 8) * TS, TS, TS, px, py, TS, TS);
+  ctx.restore();
+  ctx.fillStyle = 'rgba(20,12,6,0.22)';
+  ctx.fillRect(px, py, TS, TS);
+  ctx.fillStyle = 'rgba(255,214,150,0.14)';
+  ctx.fillRect(px, py, TS, 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.fillRect(px, py + TS - 3, TS, 3);
+  const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+  ctx.fillStyle = 'rgba(150,120,86,0.5)';
+  for (let k = 0; k < 3; k++) {
+    const ex2 = (h >> (k * 5)) & 15, ey2 = (h >> (k * 5 + 8)) & 1;
+    ctx.fillRect(px + 2 + ex2 * 1.8, ey2 ? py + 1 : py + TS - 3, 3, 2);
+  }
+}
+
 let dirtTex = null;
 function dirtTexture() {
   if (dirtTex) return dirtTex;
@@ -342,6 +402,10 @@ function dirtTexture() {
   return c;
 }
 
+function poly2(x1, y1, x2, y2, x3, y3) {
+  ctx.fillStyle = '#8a6030';
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3); ctx.closePath(); ctx.fill();
+}
 function drawCell(x, y, c, w, MV, lerp) {
   const px = x * TS, py = y * TS;
   const m = MV.get(y * CFG.CW + x);
@@ -352,18 +416,47 @@ function drawCell(x, y, c, w, MV, lerp) {
       ctx.drawImage(tex, (x % 8) * TS, (y % 8) * TS, TS, TS, px, py, TS, TS);
       break;
     }
-    case T.WALL:
-      ctx.fillStyle = '#4a3c2c'; ctx.fillRect(px, py, TS, TS);
-      ctx.fillStyle = 'rgba(255,220,170,0.12)'; ctx.fillRect(px + 1, py + 1, TS - 2, 3);
-      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(px + 1, py + TS - 4, TS - 2, 3);
-      ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1;
-      ctx.strokeRect(px + 0.5, py + 0.5, TS - 1, TS - 1);
+    case T.WALL: {
+      // dressed sandstone masonry, offset courses
+      const odd = y & 1;
+      const g2 = ctx.createLinearGradient(px, py, px, py + TS);
+      g2.addColorStop(0, '#8a7355'); g2.addColorStop(0.5, '#70593d'); g2.addColorStop(1, '#7c6547');
+      ctx.fillStyle = g2; ctx.fillRect(px, py, TS, TS);
+      ctx.fillStyle = '#4a3826';
+      ctx.fillRect(px, py + TS - 2, TS, 2);
+      ctx.fillRect(px + (odd ? TS / 2 - 1 : TS / 4 - 1), py + 2, 2, TS - 4);
+      ctx.fillStyle = 'rgba(255,224,170,0.18)'; ctx.fillRect(px + 1, py + 1, TS - 2, 2);
+      const h2 = ((x * 31 + y * 57) % 7);
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.fillRect(px + 4 + h2 * 3, py + 8 + (h2 % 3) * 6, 3, 2);
       break;
-    case T.STEEL:
-      ctx.fillStyle = '#2c2620'; ctx.fillRect(px, py, TS, TS);
-      ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(px + 2, py + 2, TS - 4, 2);
+    }
+    case T.STEEL: {
+      // company iron: plate, rivets, and depth etched on the western rim
+      const g3 = ctx.createLinearGradient(px, py, px, py + TS);
+      g3.addColorStop(0, '#3c352c'); g3.addColorStop(0.5, '#2a251f'); g3.addColorStop(1, '#332d26');
+      ctx.fillStyle = g3; ctx.fillRect(px, py, TS, TS);
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(px + 0.75, py + 0.75, TS - 1.5, TS - 1.5);
+      ctx.fillStyle = 'rgba(255,240,210,0.1)'; ctx.fillRect(px + 2, py + 2, TS - 4, 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      for (const [rx, ry] of [[6, 6], [TS - 6, 6], [6, TS - 6], [TS - 6, TS - 6]]) {
+        ctx.beginPath(); ctx.arc(px + rx, py + ry, 1.6, 0, 7); ctx.fill();
+      }
+      if (x === 0 && y % 6 === 3) {
+        ctx.save();
+        ctx.font = `800 11px ${MONO}`; ctx.textAlign = 'center';
+        ctx.translate(px + TS / 2, py + TS / 2); ctx.rotate(-Math.PI / 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillText(`${y * 4}m`, 0.8, 3.8);
+        ctx.fillStyle = 'rgba(201,168,106,0.85)';
+        ctx.fillText(`${y * 4}m`, 0, 3);
+        ctx.restore();
+      }
       break;
+    }
     case T.ROCK: {
+      pocket(x, y);
       ctx.save();
       ctx.translate(px + TS / 2 + ox, py + TS / 2 + oy);
       if (m && m.dx) ctx.rotate(m.dx * (1 - lerp) * 1.1);
@@ -384,6 +477,7 @@ function drawCell(x, y, c, w, MV, lerp) {
       break;
     }
     case T.GEM: {
+      pocket(x, y);
       ctx.save();
       ctx.translate(px + TS / 2 + ox, py + TS / 2 + oy);
       const ph = ((x * 73 + y * 131) % 97) / 97 * Math.PI * 2;
@@ -412,28 +506,52 @@ function drawCell(x, y, c, w, MV, lerp) {
       break;
     }
     case T.CRATE: {
+      pocket(x, y);
       ctx.save();
       ctx.translate(px + ox, py + oy);
-      ctx.fillStyle = '#8a6030'; ctx.fillRect(3, 3, TS - 6, TS - 6);
-      ctx.fillStyle = '#a87840'; ctx.fillRect(5, 5, TS - 10, TS - 10);
-      ctx.strokeStyle = '#5c3e1c'; ctx.lineWidth = 2;
+      // planked powder crate, warning diamond, a stub of fuse
+      const pg = ctx.createLinearGradient(0, 3, 0, TS - 3);
+      pg.addColorStop(0, '#a87c44'); pg.addColorStop(1, '#7c5628');
+      ctx.fillStyle = pg; ctx.fillRect(3, 3, TS - 6, TS - 6);
+      ctx.strokeStyle = 'rgba(60,38,16,0.8)'; ctx.lineWidth = 1;
+      for (let k = 1; k < 4; k++) { ctx.beginPath(); ctx.moveTo(3, 3 + k * (TS - 6) / 4); ctx.lineTo(TS - 3, 3 + k * (TS - 6) / 4); ctx.stroke(); }
+      ctx.strokeStyle = '#4c3214'; ctx.lineWidth = 2.5;
       ctx.strokeRect(4, 4, TS - 8, TS - 8);
-      ctx.beginPath(); ctx.moveTo(4, 4); ctx.lineTo(TS - 4, TS - 4); ctx.moveTo(TS - 4, 4); ctx.lineTo(4, TS - 4); ctx.stroke();
-      ctx.fillStyle = '#e8402a';
-      ctx.font = `bold 11px ${MONO}`; ctx.textAlign = 'center';
-      ctx.fillText('TNT', TS / 2, TS / 2 + 4);
+      ctx.save();
+      ctx.translate(TS / 2, TS / 2); ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = '#e8402a'; ctx.fillRect(-7, -7, 14, 14);
+      ctx.fillStyle = '#fff0d8'; ctx.fillRect(-5, -5, 10, 10);
+      ctx.fillStyle = '#e8402a'; ctx.fillRect(-3.5, -3.5, 7, 7);
+      ctx.restore();
+      ctx.strokeStyle = '#2c2016'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(TS - 9, 4); ctx.quadraticCurveTo(TS - 5, 0, TS - 10, 1); ctx.stroke();
+      const fk = 1.6 + Math.sin(B.time * 11 + x * 3) * 0.7;
+      ctx.fillStyle = '#ffb040';
+      ctx.beginPath(); ctx.arc(TS - 10, 1, fk, 0, 7); ctx.fill();
       ctx.restore();
       break;
     }
-    case T.PROP:
-      ctx.fillStyle = PAL.prop;
-      ctx.fillRect(px + TS / 2 - 4, py + 2, 8, TS - 4);
-      ctx.fillRect(px + 3, py + 2, TS - 6, 5);
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.fillRect(px + TS / 2 - 4, py + TS - 8, 8, 6);
-      ctx.fillStyle = 'rgba(255,230,180,0.25)';
-      ctx.fillRect(px + 3, py + 2, TS - 6, 2);
+    case T.PROP: {
+      pocket(x, y);
+      // load-bearing timber: post, header beam, wedges, grain
+      const wg = ctx.createLinearGradient(px + TS / 2 - 5, py, px + TS / 2 + 5, py);
+      wg.addColorStop(0, '#c49a5e'); wg.addColorStop(0.5, '#a87c44'); wg.addColorStop(1, '#8a6030');
+      ctx.fillStyle = wg;
+      ctx.fillRect(px + TS / 2 - 5, py + 6, 10, TS - 6);
+      ctx.fillStyle = '#b0854e';
+      ctx.fillRect(px + 2, py + 2, TS - 4, 6);
+      ctx.fillStyle = 'rgba(255,230,180,0.35)'; ctx.fillRect(px + 2, py + 2, TS - 4, 2);
+      ctx.fillStyle = 'rgba(60,38,16,0.6)';
+      ctx.fillRect(px + 2, py + 6, TS - 4, 1.5);
+      poly2(px + TS / 2 - 9, py + 8, px + TS / 2 - 5, py + 8, px + TS / 2 - 5, py + 14);
+      poly2(px + TS / 2 + 9, py + 8, px + TS / 2 + 5, py + 8, px + TS / 2 + 5, py + 14);
+      ctx.strokeStyle = 'rgba(90,60,30,0.6)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px + TS / 2 - 2, py + 8); ctx.lineTo(px + TS / 2 - 2, py + TS - 2);
+      ctx.moveTo(px + TS / 2 + 2, py + 10); ctx.lineTo(px + TS / 2 + 2, py + TS - 4);
+      ctx.stroke();
       break;
+    }
     case T.EXIT: {
       const open = w.exitOpen;
       ctx.fillStyle = '#241c12'; ctx.fillRect(px + 2, py + 2, TS - 4, TS - 4);
@@ -476,6 +594,9 @@ function drawDigger(wp, lerp, color, alpha, moving) {
   ctx.fillRect(-6, -20, 12, 12);
   ctx.fillStyle = color === 'me' ? '#35597f' : color;
   ctx.fillRect(-6, -10, 5, 9); ctx.fillRect(1, -10, 5, 9);
+  // survival outline: one warm pixel of rim, whatever the light says
+  ctx.strokeStyle = 'rgba(255,233,176,0.55)'; ctx.lineWidth = 1;
+  ctx.strokeRect(-7, -32, 14, 25);
   // head + helmet + lamp
   ctx.fillStyle = '#f0c8a0'; ctx.fillRect(-5, -27, 10, 8);
   ctx.fillStyle = '#ffd12a'; ctx.fillRect(-6, -31, 12, 6);
@@ -493,10 +614,14 @@ function draw() {
   const MV = new Map();
   for (const m of w.moves) MV.set(m.y * CFG.CW + m.x, m);
 
+  // one shake offset per frame: tiles, lighting, and sprites all share it,
+  // so the layers never tear apart under a boom
+  const shx = B.shake > 0.1 ? (Math.random() - 0.5) * B.shake : 0;
+  const shy = B.shake > 0.1 ? (Math.random() - 0.5) * B.shake * 0.7 : 0;
+
   ctx.save();
   ctx.beginPath(); ctx.rect(0, MQ, VW, VH); ctx.clip();
-  ctx.translate(0, MQ);
-  if (B.shake > 0.1) ctx.translate((Math.random() - 0.5) * B.shake, (Math.random() - 0.5) * B.shake * 0.7);
+  ctx.translate(shx, MQ + shy);
   ctx.translate(-B.cam.x, -B.cam.y);
 
   const bg = ctx.createLinearGradient(0, B.cam.y, 0, B.cam.y + VH);
@@ -508,9 +633,51 @@ function draw() {
   for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
     const c = w.grid[y][x];
     if (c !== T.SPACE && c !== T.PLAYER && c !== T.GNASH) drawCell(x, y, c, w, MV, lerp);
+    else if (c === T.SPACE || c === T.PLAYER) {
+      // carved residue: crumbs where earth used to be
+      const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+      ctx.fillStyle = 'rgba(122,104,84,0.32)';
+      for (let k = 0; k < 3; k++) {
+        const cx2 = (h >> (k * 6)) & 31, cy2 = (h >> (k * 6 + 9)) & 31;
+        ctx.fillRect(x * TS + (cx2 % 28) + 2, y * TS + (cy2 % 28) + 2, 2, 1.6);
+      }
+    }
   }
 
-  // gnashers
+  // depth strata: the deeper the row, the older the earth
+  const sg2 = ctx.createLinearGradient(0, 0, 0, CFG.CH * TS);
+  sg2.addColorStop(0, 'rgba(255,220,170,0.05)');
+  sg2.addColorStop(0.4, 'rgba(0,0,0,0)');
+  sg2.addColorStop(1, 'rgba(10,4,16,0.3)');
+  ctx.fillStyle = sg2;
+  ctx.fillRect(B.cam.x, 0, VW, CFG.CH * TS);
+  ctx.strokeStyle = 'rgba(40,26,14,0.28)'; ctx.lineWidth = 2;
+  for (let sy = 8; sy < CFG.CH; sy += 8) {
+    ctx.beginPath();
+    for (let sx = x0 * TS; sx <= x1 * TS; sx += 16)
+      ctx.lineTo(sx, sy * TS + Math.sin(sx * 0.02 + sy) * 4);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+  drawLighting(w, lerp, shx, shy);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, MQ, VW, VH); ctx.clip();
+  ctx.translate(shx, MQ + shy);
+  ctx.translate(-B.cam.x, -B.cam.y);
+  // golden lamplight: additive over the shadowed earth
+  {
+    const p2 = w.p;
+    const lx2 = (p2.px + (p2.x - p2.px) * lerp) * TS + TS / 2, ly2 = (p2.py + (p2.y - p2.py) * lerp) * TS + TS / 2;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const gl = ctx.createRadialGradient(lx2, ly2, 6, lx2, ly2, 160);
+    gl.addColorStop(0, 'rgba(255,210,122,0.22)'); gl.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gl;
+    ctx.beginPath(); ctx.arc(lx2, ly2, 160, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+  // gnashers — threats live above the shadow so they never hide
   for (const e of w.gnashers) {
     const gx = ((e.px ?? e.x) + (e.x - (e.px ?? e.x)) * lerp) * TS + TS / 2;
     const gy = ((e.py ?? e.y) + (e.y - (e.py ?? e.y)) * lerp) * TS + TS / 2;
@@ -598,7 +765,7 @@ function drawHUD() {
   ctx.font = `800 26px ${MONO}`;
   ctx.fillStyle = w.ticks <= B.proof.ticks ? PAL.blueprint : PAL.paper;
   ctx.fillText(fmtT(w.ticks), 260, HY + 64);
-  label(`FOREMAN ${fmtT(B.proof.ticks)}`, 400, HY + 58, 11, 'rgba(122,212,232,0.75)');
+  label(`PAR ${fmtT(B.proof.ticks)}`, 400, HY + 58, 11, 'rgba(122,212,232,0.75)');
   // ghosts status
   let gy2 = HY + 30;
   for (const g of B.ghosts) {
@@ -668,6 +835,8 @@ function drawIntro() {
 }
 function drawResults() {
   const res = B.result;
+  ctx.fillStyle = 'rgba(18,10,6,0.45)';
+  ctx.fillRect(0, 0, W, H);
   panel(W / 2 - 330, H / 2 - 170, 660, 340);
   ctx.textAlign = 'center';
   if (res) {
