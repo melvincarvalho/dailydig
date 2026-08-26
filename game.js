@@ -197,10 +197,24 @@ addEventListener('blur', () => {
   for (const k in keys) keys[k] = false;
 });
 
+// the SHARE button's hit zone — one definition shared by every input path,
+// kept in lockstep with the rect drawn in drawResults
+function shareZoneHit(clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  const x = (clientX - r.left) / r.width * W, y = (clientY - r.top) / r.height * H;
+  return x > W / 2 - 130 && x < W / 2 + 130 && y > H / 2 + 84 && y < H / 2 + 124;
+}
 let tId = null, tax = 0, tay = 0;
 canvas.addEventListener('touchstart', (e) => {
   e.preventDefault(); audio();
-  if (B.mode !== 'play') { if (B.mode === 'intro' || (B.mode === 'results' && !resultsLocked() && B.time - (B.suppressRestart || -9) > 0.3)) startAttempt(); return; }
+  if (B.mode !== 'play') {
+    const t0 = e.changedTouches[0];
+    // preventDefault above suppresses the synthesized click, so the button
+    // must be handled here for touch — a tap on SHARE shares, never restarts
+    if (B.mode === 'results' && B.result && t0 && shareZoneHit(t0.clientX, t0.clientY)) { doShare(); B.suppressRestart = B.time; return; }
+    if (B.mode === 'intro' || (B.mode === 'results' && !resultsLocked() && B.time - (B.suppressRestart || -9) > 0.3)) startAttempt();
+    return;
+  }
   if (tId !== null) return;
   const t = e.changedTouches[0];
   tId = t.identifier; tax = t.clientX; tay = t.clientY;
@@ -223,8 +237,11 @@ canvas.addEventListener('touchmove', (e) => {
 canvas.addEventListener('touchend', (e) => {
   for (const t of e.changedTouches) if (t.identifier === tId) { tId = null; touchHeld = 0; B.touchVis = null; }
 });
-canvas.addEventListener('mousedown', () => {
+canvas.addEventListener('mousedown', (e) => {
   audio();
+  // mousedown fires before click — a press on the SHARE button must not
+  // restart, or the click handler wakes up in 'play' mode and does nothing
+  if (B.mode === 'results' && B.result && shareZoneHit(e.clientX, e.clientY)) return;
   if (B.mode === 'intro' || (B.mode === 'results' && !resultsLocked())) startAttempt();
 });
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
@@ -267,8 +284,15 @@ function shareText(res) {
 function doShare() {
   if (!B.result) return;
   const text = shareText(B.result);
-  if (navigator.share) { navigator.share({ text }).catch(() => {}); B.copied = B.time; return; }
-  try { navigator.clipboard.writeText(text); B.copied = B.time; } catch {}
+  const copy = () => { try { navigator.clipboard.writeText(text); B.copied = B.time; B.shareMode = 'copy'; } catch {} };
+  if (navigator.share) {
+    // confirm only on resolve — a cancelled share sheet must not claim SHARED;
+    // a genuine failure (not the user backing out) falls back to the clipboard
+    navigator.share({ text }).then(() => { B.copied = B.time; B.shareMode = 'share'; })
+      .catch((err) => { if (!err || err.name !== 'AbortError') copy(); });
+    return;
+  }
+  copy();
 }
 
 
@@ -1144,7 +1168,7 @@ function drawResults() {
     ctx.beginPath(); ctx.roundRect(W / 2 - 130, shY, 260, 40, 10); ctx.fill();
     ctx.strokeStyle = copied ? '#7ce88a' : PAL.blueprint; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.roundRect(W / 2 - 130, shY, 260, 40, 10); ctx.stroke();
-    label(copied ? (navigator.share ? 'SHARED' : 'COPIED — GO POST IT') : (navigator.share ? 'SHARE MY GHOST' : 'COPY SHARE + GHOST LINK'), W / 2, shY + 26, 13, copied ? PAL.good : PAL.blueprint, 'center');
+    label(copied ? (B.shareMode === 'share' ? 'SHARED' : 'COPIED — GO POST IT') : (navigator.share ? 'SHARE MY GHOST' : 'COPY SHARE + GHOST LINK'), W / 2, shY + 26, 13, copied ? PAL.good : PAL.blueprint, 'center');
     if (!IS_TOUCH) label('C ALSO WORKS', W / 2 + 200, shY + 26, 9, 'rgba(214,192,156,0.5)', 'center');
     label(IS_TOUCH ? 'TAP ANYWHERE ELSE TO DIG AGAIN' : 'SPACE TO DIG AGAIN', W / 2, shY + 66, 13, '#ffffff', 'center');
   } else {
@@ -1166,10 +1190,7 @@ function drawBroken() {
 // results-screen share tap zone (touch)
 canvas.addEventListener('click', (e) => {
   if (B.mode !== 'results' || !B.result) return;
-  const r = canvas.getBoundingClientRect();
-  const x = (e.clientX - r.left) / r.width * W;
-  const y = (e.clientY - r.top) / r.height * H;
-  if (x > W / 2 - 130 && x < W / 2 + 130 && y > H / 2 + 84 && y < H / 2 + 124) { doShare(); B.suppressRestart = B.time; }
+  if (shareZoneHit(e.clientX, e.clientY)) { doShare(); B.suppressRestart = B.time; }
 });
 
 // ---------------------------------------------------------------------------
