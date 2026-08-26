@@ -433,19 +433,19 @@ function spawnFX(events) {
       for (let i = 0; i < Math.round(7 * FXN); i++) { const a = R() * 6.28, s = 60 + R() * 160; part({ k: 'shard', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, r: 2 + R() * 2.5, c: '63,210,255', life: 0.35 + R() * 0.25, t: 0 }); }
       part({ k: 'flash', x: cx, y: cy, r: 26, c: '190,240,255', life: 0.18, t: 0 });
     } else if (ev.t === 'thud') {
-      for (let i = 0; i < 4; i++) part({ k: 'dust', x: cx + (R() - 0.5) * 26, y: cy + TS / 2 - 3, vx: (R() - 0.5) * 90, vy: -20 - R() * 35, r: 2 + R() * 3, c: '150,124,92', life: 0.25 + R() * 0.2, t: 0 });
+      for (let i = 0; i < Math.round(4 * FXN); i++) part({ k: 'dust', x: cx + (R() - 0.5) * 26, y: cy + TS / 2 - 3, vx: (R() - 0.5) * 90, vy: -20 - R() * 35, r: 2 + R() * 3, c: '150,124,92', life: 0.25 + R() * 0.2, t: 0 });
     } else if (ev.t === 'boom') {
       for (let i = 0; i < Math.round(14 * FXN); i++) { const a = R() * 6.28, s = 90 + R() * 260; part({ k: 'debris', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, r: 2 + R() * 3.5, c: R() < 0.5 ? '120,96,68' : '255,170,80', life: 0.4 + R() * 0.35, t: 0, g: 480 }); }
       part({ k: 'ring', x: cx, y: cy, r: 12, c: '255,220,150', life: 0.35, t: 0 });
       part({ k: 'flash', x: cx, y: cy, r: 56, c: '255,235,200', life: 0.2, t: 0 });
     } else if (ev.t === 'prop') {
-      for (let i = 0; i < 6; i++) part({ k: 'debris', x: cx, y: cy, vx: (R() - 0.5) * 160, vy: -50 - R() * 90, r: 1.5 + R() * 2.5, c: '176,133,78', life: 0.35 + R() * 0.3, t: 0, g: 520 });
+      for (let i = 0; i < Math.round(6 * FXN); i++) part({ k: 'debris', x: cx, y: cy, vx: (R() - 0.5) * 160, vy: -50 - R() * 90, r: 1.5 + R() * 2.5, c: '176,133,78', life: 0.35 + R() * 0.3, t: 0, g: 520 });
     } else if (ev.t === 'push') {
-      for (let i = 0; i < 3; i++) part({ k: 'dust', x: cx + (R() - 0.5) * 12, y: cy + TS / 2 - 4, vx: (R() - 0.5) * 50, vy: -15 - R() * 25, r: 1.5 + R() * 2, c: '150,124,92', life: 0.22, t: 0 });
+      for (let i = 0; i < Math.round(3 * FXN); i++) part({ k: 'dust', x: cx + (R() - 0.5) * 12, y: cy + TS / 2 - 4, vx: (R() - 0.5) * 50, vy: -15 - R() * 25, r: 1.5 + R() * 2, c: '150,124,92', life: 0.22, t: 0 });
     } else if (ev.t === 'open') {
       B.exitOpenAt = B.time;
     } else if (ev.t === 'crush' || ev.t === 'bite' || ev.t === 'die') {
-      for (let i = 0; i < 10; i++) { const a = R() * 6.28, s = 70 + R() * 180; part({ k: 'debris', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, r: 2 + R() * 3, c: '200,160,120', life: 0.5 + R() * 0.3, t: 0, g: 420 }); }
+      for (let i = 0; i < Math.round(10 * FXN); i++) { const a = R() * 6.28, s = 70 + R() * 180; part({ k: 'debris', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, r: 2 + R() * 3, c: '200,160,120', life: 0.5 + R() * 0.3, t: 0, g: 420 }); }
     }
   }
 }
