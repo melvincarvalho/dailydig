@@ -1272,7 +1272,16 @@ function stepWorld(n, inputFn) {
     tick(B.w, inp);
     spawnFX(B.w.events);
     tickParts(CFG.TICK);
-    for (const g of B.ghosts) { if (!g.done) { tick(g.world, g.i < g.tape.length ? g.tape[g.i] : 0); g.i++; if (g.world.done || g.world.dead) g.done = true; } }
+    for (const g of B.ghosts) {
+      if (g.done) continue;
+      const gp = g.world.p;
+      if (g.trail.length === 0 || g.trail[g.trail.length - 1][0] !== gp.x || g.trail[g.trail.length - 1][1] !== gp.y) {
+        g.trail.push([gp.x, gp.y]);
+        if (g.trail.length > 14) g.trail.shift();
+      }
+      tick(g.world, g.i < g.tape.length ? g.tape[g.i] : 0); g.i++;
+      if (g.world.done || g.world.dead) g.done = true;
+    }
   }
   snapCam(true);
 }
