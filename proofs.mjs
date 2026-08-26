@@ -38,11 +38,19 @@ export async function runProofs(C) {
   });
 
   proof('generation: exactly one exit, gems counted honestly', () => {
-    const cave = C.generate(999);
-    let exits = 0, gems = 0;
-    for (const row of cave.grid) for (const c of row) { if (c === C.T.EXIT) exits++; if (c === C.T.GEM) gems++; }
-    assert(exits === 1, exits + ' exits');
-    assert(gems === cave.gems, 'gem count lies');
+    for (const seed of [999, 4711, 8123, 15551]) {
+      const cave = C.generate(seed);
+      let exits = 0, gems = 0;
+      for (const row of cave.grid) for (const c of row) { if (c === C.T.EXIT) exits++; if (c === C.T.GEM) gems++; }
+      assert(exits === 1, seed + ': ' + exits + ' exits');
+      assert(gems === cave.gems, seed + ': gem count lies (' + cave.gems + ' claimed, ' + gems + ' real)');
+    }
+    for (const day of ['2026-08-03', '2026-08-08']) {
+      const d = C.dailyCave(day);
+      let gems = 0;
+      for (const row of d.cave.grid) for (const c of row) if (c === C.T.GEM) gems++;
+      assert(gems === d.cave.gems, day + ': daily gem ledger lies');
+    }
   });
 
   proof('physics: a rock falls one cell per tick through space', () => {

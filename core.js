@@ -11,7 +11,7 @@ export const CFG = {
   quotaFrac: 0.6,          // fraction of gems required to open the exit
   pushDelay: 1,            // extra tick before a push lands
   solverBudget: 2600,      // max ticks the Foreman may spend
-  seedTries: 28,           // candidate seeds tried before a day is declared bad
+  seedTries: 44,           // candidate seeds tried before a day is declared bad
   genRocks: 0.16, genGems: 0.055, genCrates: 7, genShafts: 9, genGnashers: 5,
   replayCap: 6000,         // hard cap on recorded ticks
 };
@@ -214,6 +214,10 @@ export function generate(seed, P) {
   const ex = CW - 3 - (rng() * 6 | 0), ey = CH - 3 - (rng() * 4 | 0);
   g[ey][ex] = T.EXIT;
   if (g[ey - 1][ex] === T.ROCK) g[ey - 1][ex] = T.DIRT;
+
+  // the ledger is the grid: recount after every paver has had its say
+  gems = 0;
+  for (const row of g) for (const c of row) if (c === T.GEM) gems++;
 
   return { grid: g, start: [sx, sy], exit: [ex, ey], gems, seed, quotaFrac: P.quotaFrac || CFG.quotaFrac, setpieces };
 }
