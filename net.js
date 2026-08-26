@@ -72,11 +72,11 @@ export async function fetchBoard(day) {
   const batches = await Promise.all(RELAYS.map((r) => relayRoundtrip(r, [req], true, 7000)));
   const seen = new Map();
   for (const ev of batches.flat()) {
-    if (!ev || ev.kind !== KIND) continue;
+    if (!ev || ev.kind !== KIND || typeof ev.pubkey !== 'string' || !Array.isArray(ev.tags)) continue;
     let body;
     try { body = JSON.parse(ev.content); } catch { continue; }
     if (!body || body.day !== day || typeof body.tape !== 'string' || !Number.isFinite(body.ticks)) continue;
-    const name = (ev.tags.find((t) => t[0] === 'name') || [])[1] || ev.pubkey.slice(0, 8);
+    const name = String((ev.tags.find((t) => Array.isArray(t) && t[0] === 'name') || [])[1] || ev.pubkey.slice(0, 8)).slice(0, 16);
     const prev = seen.get(ev.pubkey);
     if (!prev || body.ticks < prev.ticks) seen.set(ev.pubkey, { pubkey: ev.pubkey, name, ticks: body.ticks, tape: body.tape });
   }

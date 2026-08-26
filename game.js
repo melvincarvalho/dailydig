@@ -223,6 +223,7 @@ function startAttempt() {
   B.hintStage = B.rookie ? 1 : 0;
   B.hintShownAt = 0;
   B.deathCause = null;
+  B.posted = false;         // a fresh attempt is a fresh claim for the board
   B.tape = [];
   B.attempts++;
   B.time = 0; B.tickAcc = 0;
@@ -1094,7 +1095,6 @@ function drawBoard() {
   else if (B.board && B.board.length === 0) label('NOBODY HAS POSTED THIS SHIFT YET. BE FIRST.', W / 2, PY + 130, 11, PAL.good, 'center');
   else if (B.board) {
     let y2 = PY + 96;
-    const myPk = (() => { try { return localStorage.getItem('dailydig_nsec') ? null : null; } catch { return null; } })();
     for (let i = 0; i < Math.min(12, B.board.length); i++) {
       const e = B.board[i];
       const mine = B.result && e.ticks === B.result.ticks && B.posted;
