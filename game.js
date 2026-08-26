@@ -366,6 +366,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (B.mode === 'intro' || (B.mode === 'results' && !resultsLocked())) startAttempt();
 });
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---------------------------------------------------------------------------
 // share
@@ -424,26 +425,27 @@ function spawnFX(events) {
   const R = B.fxRng || Math.random;
   for (const ev of events) {
     const cx = (ev.x !== undefined ? ev.x : 0) * TS + TS / 2, cy = (ev.y !== undefined ? ev.y : 0) * TS + TS / 2;
+    const FXN = REDUCED ? 0.35 : 1;   // motion-sensitive players get a calmer mine
     if (ev.t === 'dig') {
-      for (let i = 0; i < 5; i++) part({ k: 'dust', x: cx + (R() - 0.5) * 20, y: cy + (R() - 0.5) * 20, vx: (R() - 0.5) * 70, vy: -30 - R() * 50, r: 2 + R() * 3, c: '150,124,92', life: 0.3 + R() * 0.2, t: 0 });
+      for (let i = 0; i < Math.round(5 * FXN); i++) part({ k: 'dust', x: cx + (R() - 0.5) * 20, y: cy + (R() - 0.5) * 20, vx: (R() - 0.5) * 70, vy: -30 - R() * 50, r: 2 + R() * 3, c: '150,124,92', life: 0.3 + R() * 0.2, t: 0 });
     } else if (ev.t === 'gem') {
       B.gemPunchAt = B.time;
-      for (let i = 0; i < 7; i++) { const a = R() * 6.28, s = 60 + R() * 160; part({ k: 'shard', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, r: 2 + R() * 2.5, c: '63,210,255', life: 0.35 + R() * 0.25, t: 0 }); }
+      for (let i = 0; i < Math.round(7 * FXN); i++) { const a = R() * 6.28, s = 60 + R() * 160; part({ k: 'shard', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, r: 2 + R() * 2.5, c: '63,210,255', life: 0.35 + R() * 0.25, t: 0 }); }
       part({ k: 'flash', x: cx, y: cy, r: 26, c: '190,240,255', life: 0.18, t: 0 });
     } else if (ev.t === 'thud') {
-      for (let i = 0; i < 4; i++) part({ k: 'dust', x: cx + (R() - 0.5) * 26, y: cy + TS / 2 - 3, vx: (R() - 0.5) * 90, vy: -20 - R() * 35, r: 2 + R() * 3, c: '150,124,92', life: 0.25 + R() * 0.2, t: 0 });
+      for (let i = 0; i < Math.round(4 * FXN); i++) part({ k: 'dust', x: cx + (R() - 0.5) * 26, y: cy + TS / 2 - 3, vx: (R() - 0.5) * 90, vy: -20 - R() * 35, r: 2 + R() * 3, c: '150,124,92', life: 0.25 + R() * 0.2, t: 0 });
     } else if (ev.t === 'boom') {
-      for (let i = 0; i < 14; i++) { const a = R() * 6.28, s = 90 + R() * 260; part({ k: 'debris', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, r: 2 + R() * 3.5, c: R() < 0.5 ? '120,96,68' : '255,170,80', life: 0.4 + R() * 0.35, t: 0, g: 480 }); }
+      for (let i = 0; i < Math.round(14 * FXN); i++) { const a = R() * 6.28, s = 90 + R() * 260; part({ k: 'debris', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, r: 2 + R() * 3.5, c: R() < 0.5 ? '120,96,68' : '255,170,80', life: 0.4 + R() * 0.35, t: 0, g: 480 }); }
       part({ k: 'ring', x: cx, y: cy, r: 12, c: '255,220,150', life: 0.35, t: 0 });
       part({ k: 'flash', x: cx, y: cy, r: 56, c: '255,235,200', life: 0.2, t: 0 });
     } else if (ev.t === 'prop') {
-      for (let i = 0; i < 6; i++) part({ k: 'debris', x: cx, y: cy, vx: (R() - 0.5) * 160, vy: -50 - R() * 90, r: 1.5 + R() * 2.5, c: '176,133,78', life: 0.35 + R() * 0.3, t: 0, g: 520 });
+      for (let i = 0; i < Math.round(6 * FXN); i++) part({ k: 'debris', x: cx, y: cy, vx: (R() - 0.5) * 160, vy: -50 - R() * 90, r: 1.5 + R() * 2.5, c: '176,133,78', life: 0.35 + R() * 0.3, t: 0, g: 520 });
     } else if (ev.t === 'push') {
-      for (let i = 0; i < 3; i++) part({ k: 'dust', x: cx + (R() - 0.5) * 12, y: cy + TS / 2 - 4, vx: (R() - 0.5) * 50, vy: -15 - R() * 25, r: 1.5 + R() * 2, c: '150,124,92', life: 0.22, t: 0 });
+      for (let i = 0; i < Math.round(3 * FXN); i++) part({ k: 'dust', x: cx + (R() - 0.5) * 12, y: cy + TS / 2 - 4, vx: (R() - 0.5) * 50, vy: -15 - R() * 25, r: 1.5 + R() * 2, c: '150,124,92', life: 0.22, t: 0 });
     } else if (ev.t === 'open') {
       B.exitOpenAt = B.time;
     } else if (ev.t === 'crush' || ev.t === 'bite' || ev.t === 'die') {
-      for (let i = 0; i < 10; i++) { const a = R() * 6.28, s = 70 + R() * 180; part({ k: 'debris', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, r: 2 + R() * 3, c: '200,160,120', life: 0.5 + R() * 0.3, t: 0, g: 420 }); }
+      for (let i = 0; i < Math.round(10 * FXN); i++) { const a = R() * 6.28, s = 70 + R() * 180; part({ k: 'debris', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, r: 2 + R() * 3, c: '200,160,120', life: 0.5 + R() * 0.3, t: 0, g: 420 }); }
     }
   }
 }
@@ -517,8 +519,8 @@ function update(dt) {
       else if (ev.t === 'bite') B.deathCause = 'bite';
       else if (ev.t === 'boom' && !B.w.p.alive && !B.deathCause) B.deathCause = 'boom';
       if (SFX[ev.t]) SFX[ev.t]();
-      if (ev.t === 'boom') B.shake = Math.min(B.shake + 8, 14);
-      if (ev.t === 'thud') B.shake = Math.min(B.shake + 1.5, 6);
+      if (ev.t === 'boom') B.shake = REDUCED ? 0 : Math.min(B.shake + 8, 14);
+      if (ev.t === 'thud') B.shake = REDUCED ? 0 : Math.min(B.shake + 1.5, 6);
       if (ev.t === 'open') B.banner = { text: 'QUOTA MET', sub: 'the exit is open', t: 1.6 };
     }
 
@@ -857,7 +859,7 @@ function drawDigger(wp, lerp, color, alpha, moving) {
   ctx.restore();
   ctx.fillStyle = 'rgba(0,0,0,0.4)';
   ctx.beginPath(); ctx.ellipse(0, -1, 9, 3, 0, 0, 7); ctx.fill();
-  const bob = moving ? Math.sin(B.time * 18) * 1.2 : Math.sin(B.time * 2.4) * 0.8;
+  const bob = REDUCED ? 0 : (moving ? Math.sin(B.time * 18) * 1.2 : Math.sin(B.time * 2.4) * 0.8);
   ctx.translate(0, bob);
   if (wp.pushT > 0) ctx.rotate((wp.dir || 1) * 0.14);
   // body
@@ -1395,7 +1397,7 @@ function drawBanner() {
   const ease = 1 - Math.pow(1 - born, 3);
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, a));
-  ctx.translate(0, (1 - ease) * -26);
+  if (!REDUCED) ctx.translate(0, (1 - ease) * -26);
   ctx.fillStyle = 'rgba(18,12,6,0.85)';
   ctx.fillRect(0, H * 0.34, W, 96);
   ctx.textAlign = 'center';
