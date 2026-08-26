@@ -28,6 +28,7 @@ const PAL = {
 // browser state
 const B = {
   mode: 'intro',            // intro | play | results | calendar
+  leadX: 0, leadY: 0, lastMove: 0,
   day: null, dayN: 1, cave: null, proof: null,
   w: null,                  // live world
   tape: [],                 // my recorded inputs this attempt
@@ -141,30 +142,54 @@ function startAttempt() {
 // input
 const keys = {};
 let touchHeld = 0;
+// last-pressed-wins held stack + a one-shot tap buffer: a tap that falls
+// between physics ticks still digs exactly one cell, never zero, never two
+const KEY2DIR = { arrowleft: 1, a: 1, arrowright: 2, d: 2, arrowup: 3, w: 3, arrowdown: 4, s: 4 };
+const heldStack = [];
+let tapBuffer = 0;
 function currentInput() {
-  if (keys.ArrowLeft || keys.a) return 1;
-  if (keys.ArrowRight || keys.d) return 2;
-  if (keys.ArrowUp || keys.w) return 3;
-  if (keys.ArrowDown || keys.s) return 4;
-  return touchHeld;
+  if (heldStack.length) { tapBuffer = 0; return heldStack[heldStack.length - 1]; }
+  if (touchHeld) { tapBuffer = 0; return touchHeld; }
+  const t = tapBuffer; tapBuffer = 0;
+  return t;
 }
+function resultsLocked() { return B.time - B.finishedAt < 0.45; }
 addEventListener('keydown', (e) => {
-  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (e.repeat) return;
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
   keys[k] = true;
+  const dir = KEY2DIR[k];
+  if (dir) {
+    const i = heldStack.indexOf(dir);
+    if (i >= 0) heldStack.splice(i, 1);
+    heldStack.push(dir);
+    tapBuffer = dir;
+  }
   if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
   audio();
-  if (e.key === 'm') { B.muted = !B.muted; if (master) master.gain.value = B.muted ? 0 : 0.4; }
+  if (k === 'm') { B.muted = !B.muted; if (master) master.gain.value = B.muted ? 0 : 0.4; }
   if (B.mode === 'intro' && (e.key === ' ' || e.key === 'Enter')) startAttempt();
-  else if (B.mode === 'results' && (e.key === ' ' || e.key === 'Enter')) startAttempt();
-  else if (B.mode === 'results' && (e.key === 'c')) copyShare();
-  else if (B.mode === 'play' && e.key === 'r') { B.mode = 'results'; B.result = null; B.mode = 'intro'; startAttempt(); }
+  else if (B.mode === 'results' && (e.key === ' ' || e.key === 'Enter') && !resultsLocked()) startAttempt();
+  else if (B.mode === 'results' && k === 'c') copyShare();
+  else if (B.mode === 'play' && k === 'r') startAttempt();
 });
-addEventListener('keyup', (e) => { const k = e.key.length === 1 ? e.key.toLowerCase() : e.key; keys[k] = false; });
+addEventListener('keyup', (e) => {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
+  keys[k] = false;
+  const dir = KEY2DIR[k];
+  if (dir) { const i = heldStack.indexOf(dir); if (i >= 0) heldStack.splice(i, 1); }
+});
+// losing focus mid-hold means the keyup never arrives — drop everything,
+// or the digger walks into a rock while you answer a text
+addEventListener('blur', () => {
+  heldStack.length = 0; tapBuffer = 0; touchHeld = 0; tId = null;
+  for (const k in keys) keys[k] = false;
+});
 
 let tId = null, tax = 0, tay = 0;
 canvas.addEventListener('touchstart', (e) => {
   e.preventDefault(); audio();
-  if (B.mode !== 'play') { if (B.mode === 'intro' || B.mode === 'results') startAttempt(); return; }
+  if (B.mode !== 'play') { if (B.mode === 'intro' || (B.mode === 'results' && !resultsLocked())) startAttempt(); return; }
   if (tId !== null) return;
   const t = e.changedTouches[0];
   tId = t.identifier; tax = t.clientX; tay = t.clientY;
@@ -187,7 +212,7 @@ canvas.addEventListener('touchend', (e) => {
 });
 canvas.addEventListener('mousedown', () => {
   audio();
-  if (B.mode === 'intro' || B.mode === 'results') startAttempt();
+  if (B.mode === 'intro' || (B.mode === 'results' && !resultsLocked())) startAttempt();
 });
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
 
@@ -228,8 +253,15 @@ function copyShare() {
 
 // ---------------------------------------------------------------------------
 // update
+const LEAD = [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]];
 function snapCam(hard) {
-  const px = B.w.p.x * TS + TS / 2 - VW / 2, py = B.w.p.y * TS + TS / 2 - VH / 2;
+  // the camera leads the digger: you see where you are going, not where
+  // you have been — the difference between driving and being dragged
+  const [ldx, ldy] = LEAD[B.lastMove] || [0, 0];
+  const gain = B.w.p.moving ? 1 : 0.35;
+  B.leadX += (ldx * TS * 2.6 * gain - B.leadX) * (hard ? 1 : 0.05);
+  B.leadY += (ldy * TS * 1.8 * gain - B.leadY) * (hard ? 1 : 0.05);
+  const px = B.w.p.x * TS + TS / 2 - VW / 2 + B.leadX, py = B.w.p.y * TS + TS / 2 - VH / 2 + B.leadY;
   const tx = Math.max(0, Math.min(CFG.CW * TS - VW, px));
   const ty = Math.max(0, Math.min(CFG.CH * TS - VH, py));
   if (hard) { B.cam.x = tx; B.cam.y = ty; }
@@ -245,6 +277,7 @@ function update(dt) {
   while (B.tickAcc >= CFG.TICK) {
     B.tickAcc -= CFG.TICK;
     const input = currentInput();
+    if (input > 0) B.lastMove = input;
     B.tape.push(input);
     tick(B.w, input);
     for (const ev of B.w.events) {
@@ -686,6 +719,7 @@ canvas.addEventListener('click', (e) => {
 function stepWorld(n, inputFn) {
   for (let i = 0; i < n; i++) {
     const inp = inputFn ? inputFn(B.w, i) : 0;
+    if (inp > 0) B.lastMove = inp;
     B.tape.push(inp);
     tick(B.w, inp);
     for (const g of B.ghosts) { if (!g.done) { tick(g.world, g.i < g.tape.length ? g.tape[g.i] : 0); g.i++; if (g.world.done || g.world.dead) g.done = true; } }
@@ -723,7 +757,41 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+window.__dd = { B, CFG };   // read-only debug handle for probes and critics
+
+// feel probes: synthetic input patterns, verdict lands in document.title
+function runProbe(name) {
+  const press = (dir, downMs, upMs) => {
+    const K = { 1: 'ArrowLeft', 2: 'ArrowRight', 3: 'ArrowUp', 4: 'ArrowDown' }[dir];
+    setTimeout(() => dispatchEvent(new KeyboardEvent('keydown', { key: K })), downMs);
+    setTimeout(() => dispatchEvent(new KeyboardEvent('keyup', { key: K })), upMs);
+  };
+  startAttempt();
+  const x0 = B.w.p.x;
+  if (name === 'tap') {
+    // five 30ms taps, 250ms apart: with buffering every tap must land
+    for (let i = 0; i < 5; i++) press(2, 300 + i * 250, 330 + i * 250);
+    setTimeout(() => { document.title = `probe:tap:${B.w.p.x - x0}`; }, 2200);
+  } else if (name === 'hold') {
+    // hold right for 1.1s: cadence check (expect ~1.1/TICK cells)
+    press(2, 300, 1400);
+    setTimeout(() => { document.title = `probe:hold:${B.w.p.x - x0}`; }, 2000);
+  } else if (name === 'lastwins') {
+    // hold right, then also press left: left (last pressed) must win
+    setTimeout(() => dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })), 300);
+    setTimeout(() => dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' })), 800);
+    setTimeout(() => {
+      document.title = `probe:lastwins:${B.w.p.x - x0 < 0 ? 'left' : 'right'}`;
+      dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight' }));
+      dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft' }));
+    }, 1600);
+  }
+  // probes drive the clock with timers: rAF does not pump under --dump-dom
+  setInterval(() => { update(1 / 60); }, 16);
+}
+
 const shotName = q.get('shot');
 loadDay();
 if (shotName) runShot(shotName, Number(q.get('f') || 0));
+else if (q.get('probe')) runProbe(q.get('probe'));
 else requestAnimationFrame((t) => { last = t; requestAnimationFrame(frame); });
