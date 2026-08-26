@@ -316,14 +316,14 @@ function update(dt) {
 const lightC = document.createElement('canvas');
 lightC.width = VW / 2; lightC.height = VH / 2;
 const lctx = lightC.getContext('2d');
-function drawLighting(w, lerp) {
+function drawLighting(w, lerp, shx, shy) {
   const s = 0.5;
   lctx.globalCompositeOperation = 'source-over';
   lctx.fillStyle = 'rgb(152,134,112)';
   lctx.fillRect(0, 0, lightC.width, lightC.height);
   lctx.globalCompositeOperation = 'lighter';
   const light = (wx, wy, r, col, a) => {
-    const lx = (wx - B.cam.x) * s, ly = (wy - B.cam.y) * s;
+    const lx = (wx - B.cam.x + shx) * s, ly = (wy - B.cam.y + shy) * s;
     if (lx < -r * s || ly < -r * s || lx > lightC.width + r * s || ly > lightC.height + r * s) return;
     const g = lctx.createRadialGradient(lx, ly, 0, lx, ly, r * s);
     g.addColorStop(0, col.replace('A)', a + ')')); g.addColorStop(1, 'rgba(0,0,0,0)');
@@ -614,10 +614,14 @@ function draw() {
   const MV = new Map();
   for (const m of w.moves) MV.set(m.y * CFG.CW + m.x, m);
 
+  // one shake offset per frame: tiles, lighting, and sprites all share it,
+  // so the layers never tear apart under a boom
+  const shx = B.shake > 0.1 ? (Math.random() - 0.5) * B.shake : 0;
+  const shy = B.shake > 0.1 ? (Math.random() - 0.5) * B.shake * 0.7 : 0;
+
   ctx.save();
   ctx.beginPath(); ctx.rect(0, MQ, VW, VH); ctx.clip();
-  ctx.translate(0, MQ);
-  if (B.shake > 0.1) ctx.translate((Math.random() - 0.5) * B.shake, (Math.random() - 0.5) * B.shake * 0.7);
+  ctx.translate(shx, MQ + shy);
   ctx.translate(-B.cam.x, -B.cam.y);
 
   const bg = ctx.createLinearGradient(0, B.cam.y, 0, B.cam.y + VH);
@@ -656,11 +660,10 @@ function draw() {
   }
 
   ctx.restore();
-  drawLighting(w, lerp);
+  drawLighting(w, lerp, shx, shy);
   ctx.save();
   ctx.beginPath(); ctx.rect(0, MQ, VW, VH); ctx.clip();
-  ctx.translate(0, MQ);
-  if (B.shake > 0.1) ctx.translate((Math.random() - 0.5) * B.shake, (Math.random() - 0.5) * B.shake * 0.7);
+  ctx.translate(shx, MQ + shy);
   ctx.translate(-B.cam.x, -B.cam.y);
   // golden lamplight: additive over the shadowed earth
   {
