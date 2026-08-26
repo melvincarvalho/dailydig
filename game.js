@@ -29,6 +29,7 @@ const PAL = {
 const B = {
   mode: 'intro',            // intro | play | results | calendar
   leadX: 0, leadY: 0, lastMove: 0,
+  parts: [], fxRng: null, gemPunchAt: -9, exitOpenAt: -9,
   day: null, dayN: 1, cave: null, proof: null,
   w: null,                  // live world
   tape: [],                 // my recorded inputs this attempt
@@ -129,6 +130,9 @@ function loadDay() {
 
 function startAttempt() {
   B.w = newWorld(B.cave);
+  B.parts = [];
+  B.fxRng = makeRng((B.cave.seed ^ 0x5f3759df) >>> 0);
+  B.gemPunchAt = -9; B.exitOpenAt = -9;
   B.tape = [];
   B.attempts++;
   B.time = 0; B.tickAcc = 0;
@@ -252,6 +256,67 @@ function copyShare() {
 }
 
 // ---------------------------------------------------------------------------
+// fx — every sim event earns pixels. Seeded rng keeps shots byte-stable.
+function part(p) { if (B.parts.length < 400) B.parts.push(p); }
+function spawnFX(events) {
+  const R = B.fxRng || Math.random;
+  for (const ev of events) {
+    const cx = (ev.x !== undefined ? ev.x : 0) * TS + TS / 2, cy = (ev.y !== undefined ? ev.y : 0) * TS + TS / 2;
+    if (ev.t === 'dig') {
+      for (let i = 0; i < 5; i++) part({ k: 'dust', x: cx + (R() - 0.5) * 20, y: cy + (R() - 0.5) * 20, vx: (R() - 0.5) * 70, vy: -30 - R() * 50, r: 2 + R() * 3, c: '150,124,92', life: 0.3 + R() * 0.2, t: 0 });
+    } else if (ev.t === 'gem') {
+      B.gemPunchAt = B.time;
+      for (let i = 0; i < 7; i++) { const a = R() * 6.28, s = 60 + R() * 160; part({ k: 'shard', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, r: 2 + R() * 2.5, c: '63,210,255', life: 0.35 + R() * 0.25, t: 0 }); }
+      part({ k: 'flash', x: cx, y: cy, r: 26, c: '190,240,255', life: 0.18, t: 0 });
+    } else if (ev.t === 'thud') {
+      for (let i = 0; i < 4; i++) part({ k: 'dust', x: cx + (R() - 0.5) * 26, y: cy + TS / 2 - 3, vx: (R() - 0.5) * 90, vy: -20 - R() * 35, r: 2 + R() * 3, c: '150,124,92', life: 0.25 + R() * 0.2, t: 0 });
+    } else if (ev.t === 'boom') {
+      for (let i = 0; i < 14; i++) { const a = R() * 6.28, s = 90 + R() * 260; part({ k: 'debris', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 60, r: 2 + R() * 3.5, c: R() < 0.5 ? '120,96,68' : '255,170,80', life: 0.4 + R() * 0.35, t: 0, g: 480 }); }
+      part({ k: 'ring', x: cx, y: cy, r: 12, c: '255,220,150', life: 0.35, t: 0 });
+      part({ k: 'flash', x: cx, y: cy, r: 56, c: '255,235,200', life: 0.2, t: 0 });
+    } else if (ev.t === 'prop') {
+      for (let i = 0; i < 6; i++) part({ k: 'debris', x: cx, y: cy, vx: (R() - 0.5) * 160, vy: -50 - R() * 90, r: 1.5 + R() * 2.5, c: '176,133,78', life: 0.35 + R() * 0.3, t: 0, g: 520 });
+    } else if (ev.t === 'push') {
+      for (let i = 0; i < 3; i++) part({ k: 'dust', x: cx + (R() - 0.5) * 12, y: cy + TS / 2 - 4, vx: (R() - 0.5) * 50, vy: -15 - R() * 25, r: 1.5 + R() * 2, c: '150,124,92', life: 0.22, t: 0 });
+    } else if (ev.t === 'open') {
+      B.exitOpenAt = B.time;
+    } else if (ev.t === 'crush' || ev.t === 'bite' || ev.t === 'die') {
+      for (let i = 0; i < 10; i++) { const a = R() * 6.28, s = 70 + R() * 180; part({ k: 'debris', x: cx, y: cy, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, r: 2 + R() * 3, c: '200,160,120', life: 0.5 + R() * 0.3, t: 0, g: 420 }); }
+    }
+  }
+}
+function tickParts(dt) {
+  for (let i = B.parts.length - 1; i >= 0; i--) {
+    const p = B.parts[i];
+    p.t += dt;
+    if (p.t >= p.life) { B.parts.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vy += (p.g || 160) * dt;
+  }
+}
+function drawParts() {
+  for (const p of B.parts) {
+    const k = 1 - p.t / p.life;
+    if (p.k === 'ring') {
+      ctx.strokeStyle = `rgba(${p.c},${(k * 0.8).toFixed(3)})`;
+      ctx.lineWidth = 3 * k + 0.5;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r + (1 - k) * 130, 0, 7); ctx.stroke();
+    } else if (p.k === 'flash') {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+      g.addColorStop(0, `rgba(${p.c},${(k * 0.8).toFixed(3)})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.fillStyle = `rgba(${p.c},${(k * 0.9).toFixed(3)})`;
+      ctx.fillRect(p.x - p.r / 2, p.y - p.r / 2, p.r, p.r);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // update
 const LEAD = [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]];
 function snapCam(hard) {
@@ -280,6 +345,7 @@ function update(dt) {
     if (input > 0) B.lastMove = input;
     B.tape.push(input);
     tick(B.w, input);
+    spawnFX(B.w.events);
     for (const ev of B.w.events) {
       if (SFX[ev.t]) SFX[ev.t]();
       if (ev.t === 'boom') B.shake = Math.min(B.shake + 8, 14);
@@ -308,6 +374,7 @@ function update(dt) {
     }
   }
   if (B.tape.length >= CFG.replayCap) { B.mode = 'results'; B.result = null; }
+  tickParts(dt);
   snapCam(false);
 }
 
@@ -457,8 +524,28 @@ function drawCell(x, y, c, w, MV, lerp) {
     }
     case T.ROCK: {
       pocket(x, y);
+      if (m && m.dy) {
+        // mid-fall: afterimages behind, a shadow racing up the landing tile
+        for (const [ga, gy3] of [[0.22, -26], [0.12, -40]]) {
+          ctx.save();
+          ctx.globalAlpha = ga;
+          ctx.translate(px + TS / 2 + ox, py + TS / 2 + oy + gy3);
+          ctx.fillStyle = '#7c7264';
+          ctx.beginPath(); ctx.arc(0, 0, 12, 0, 7); ctx.fill();
+          ctx.restore();
+        }
+        let ly3 = y + 1;
+        while (ly3 < CFG.CH && w.grid[ly3][x] === T.SPACE) ly3++;
+        const dist = Math.max(1, ly3 - y);
+        ctx.save();
+        ctx.translate(px + TS / 2, py + TS / 2);
+        ctx.fillStyle = `rgba(0,0,0,${Math.max(0.15, 0.55 - dist * 0.07).toFixed(2)})`;
+        ctx.beginPath(); ctx.ellipse(0, dist * TS - TS / 2 - 2, 8 + 12 / dist, 3.6, 0, 0, 7); ctx.fill();
+        ctx.restore();
+      }
       ctx.save();
       ctx.translate(px + TS / 2 + ox, py + TS / 2 + oy);
+      if (m && m.dy) ctx.scale(0.94, 1.1);
       if (m && m.dx) ctx.rotate(m.dx * (1 - lerp) * 1.1);
       ctx.fillStyle = 'rgba(0,0,0,0.4)';
       ctx.beginPath(); ctx.ellipse(0, TS / 2 - 3, 12, 3.5, 0, 0, 7); ctx.fill();
@@ -589,6 +676,7 @@ function drawDigger(wp, lerp, color, alpha, moving) {
   ctx.beginPath(); ctx.ellipse(0, -1, 9, 3, 0, 0, 7); ctx.fill();
   const bob = moving ? Math.sin(B.time * 18) * 1.2 : Math.sin(B.time * 2.4) * 0.8;
   ctx.translate(0, bob);
+  if (wp.pushT > 0) ctx.rotate((wp.dir || 1) * 0.14);
   // body
   ctx.fillStyle = color === 'me' ? '#4f7fb5' : color;
   ctx.fillRect(-6, -20, 12, 12);
@@ -675,6 +763,22 @@ function draw() {
     gl.addColorStop(0, 'rgba(255,210,122,0.22)'); gl.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = gl;
     ctx.beginPath(); ctx.arc(lx2, ly2, 160, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+  drawParts();
+  // exit-open one-shot: gold rings sweep from the doorway
+  const ek = B.time - B.exitOpenAt;
+  if (w.exitOpen && ek >= 0 && ek < 0.9) {
+    const [exX2, exY2] = w.exit;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const del of [0, 0.14]) {
+      const t2 = ek - del;
+      if (t2 < 0) continue;
+      ctx.strokeStyle = `rgba(255,215,106,${(0.7 * (1 - ek / 0.9)).toFixed(3)})`;
+      ctx.lineWidth = Math.max(0.5, 3.5 - ek * 2.5);
+      ctx.beginPath(); ctx.arc(exX2 * TS + TS / 2, exY2 * TS + TS / 2, 14 + t2 * 320, 0, 7); ctx.stroke();
+    }
     ctx.restore();
   }
   // gnashers — threats live above the shadow so they never hide
@@ -816,7 +920,14 @@ function drawHUD() {
   F2([[-9, -6], [9, -6], [7, 0], [-7, 0]], '#bdeeff');
   F2([[-7, 0], [7, 0], [0, 12]], '#66d8ff');
   ctx.restore();
-  value(`${w.gems}/${w.quota}`, 84, HY + 64, 26, w.exitOpen ? PAL.good : PAL.paper);
+  {
+    const pk = Math.max(0, 1 - (B.time - B.gemPunchAt) / 0.3);
+    ctx.save();
+    ctx.translate(84, HY + 64);
+    ctx.scale(1 + 0.25 * pk * pk, 1 + 0.25 * pk * pk);
+    value(`${w.gems}/${w.quota}`, 0, 0, 26, w.exitOpen ? PAL.good : PAL.paper);
+    ctx.restore();
+  }
   if (w.exitOpen) label('EXIT OPEN', 32, HY + 80, 9, PAL.good);
 
   // zone 2 — TIME with live pace vs the Foreman and the next medal target
@@ -854,8 +965,11 @@ function drawHUD() {
 }
 function drawBanner() {
   const a = Math.min(1, B.banner.t * 3, (1.8 - B.banner.t) * 4);
+  const born = Math.min(1, (1.8 - B.banner.t) * 5);
+  const ease = 1 - Math.pow(1 - born, 3);
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, a));
+  ctx.translate(0, (1 - ease) * -26);
   ctx.fillStyle = 'rgba(18,12,6,0.85)';
   ctx.fillRect(0, H * 0.34, W, 96);
   ctx.textAlign = 'center';
@@ -987,6 +1101,8 @@ function stepWorld(n, inputFn) {
     if (inp > 0) B.lastMove = inp;
     B.tape.push(inp);
     tick(B.w, inp);
+    spawnFX(B.w.events);
+    tickParts(CFG.TICK);
     for (const g of B.ghosts) { if (!g.done) { tick(g.world, g.i < g.tape.length ? g.tape[g.i] : 0); g.i++; if (g.world.done || g.world.dead) g.done = true; } }
   }
   snapCam(true);
