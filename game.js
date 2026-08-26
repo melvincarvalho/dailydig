@@ -30,6 +30,7 @@ const B = {
   mode: 'intro',            // intro | play | results | calendar
   leadX: 0, leadY: 0, lastMove: 0,
   parts: [], fxRng: null, gemPunchAt: -9, exitOpenAt: -9,
+  rookie: false, hintStage: 0, hintShownAt: 0, deathCause: null, touchVis: null,
   day: null, dayN: 1, cave: null, proof: null,
   w: null,                  // live world
   tape: [],                 // my recorded inputs this attempt
@@ -126,6 +127,7 @@ function loadDay() {
   const s = store();
   B.streak = { n: s.streak || 0, last: s.lastClear || '' };
   B.best = (s.history || {})[day] || null;
+  B.rookie = !s.history || Object.keys(s.history).length === 0;
 }
 
 function startAttempt() {
@@ -133,6 +135,9 @@ function startAttempt() {
   B.parts = [];
   B.fxRng = makeRng((B.cave.seed ^ 0x5f3759df) >>> 0);
   B.gemPunchAt = -9; B.exitOpenAt = -9;
+  B.hintStage = B.rookie ? 1 : 0;
+  B.hintShownAt = 0;
+  B.deathCause = null;
   B.tape = [];
   B.attempts++;
   B.time = 0; B.tickAcc = 0;
@@ -197,6 +202,8 @@ canvas.addEventListener('touchstart', (e) => {
   if (tId !== null) return;
   const t = e.changedTouches[0];
   tId = t.identifier; tax = t.clientX; tay = t.clientY;
+  const r = canvas.getBoundingClientRect();
+  B.touchVis = [(t.clientX - r.left) / r.width * W, (t.clientY - r.top) / r.height * H];
 }, { passive: false });
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
@@ -212,7 +219,7 @@ canvas.addEventListener('touchmove', (e) => {
   }
 }, { passive: false });
 canvas.addEventListener('touchend', (e) => {
-  for (const t of e.changedTouches) if (t.identifier === tId) { tId = null; touchHeld = 0; }
+  for (const t of e.changedTouches) if (t.identifier === tId) { tId = null; touchHeld = 0; B.touchVis = null; }
 });
 canvas.addEventListener('mousedown', () => {
   audio();
@@ -346,12 +353,18 @@ function update(dt) {
     B.tape.push(input);
     tick(B.w, input);
     spawnFX(B.w.events);
+    if (B.hintStage === 1 && input > 0) { B.hintStage = 2; B.hintShownAt = B.time; }
     for (const ev of B.w.events) {
+      if (ev.t === 'gem' && B.hintStage === 2) { B.hintStage = 3; B.hintShownAt = B.time; }
+      if (ev.t === 'crush') B.deathCause = 'crush';
+      else if (ev.t === 'bite') B.deathCause = 'bite';
+      else if (ev.t === 'boom' && !B.w.p.alive && !B.deathCause) B.deathCause = 'boom';
       if (SFX[ev.t]) SFX[ev.t]();
       if (ev.t === 'boom') B.shake = Math.min(B.shake + 8, 14);
       if (ev.t === 'thud') B.shake = Math.min(B.shake + 1.5, 6);
       if (ev.t === 'open') B.banner = { text: 'QUOTA MET', sub: 'the exit is open', t: 1.6 };
     }
+
     for (const g of B.ghosts) {
       if (g.done) continue;
       tick(g.world, g.i < g.tape.length ? g.tape[g.i] : 0);
@@ -825,12 +838,57 @@ function draw() {
   }
   ctx.restore();
 
+  if (B.mode === 'play') drawHints();
   drawMarquee();
   drawHUD();
   if (B.banner) drawBanner();
   if (B.mode === 'results') drawResults();
   if (B.mode === 'intro') drawIntro();
 }
+
+// ---------------------------------------------------------------------------
+// onboarding — three hints for a rookie's first shift, then silence forever
+function hintChip(txt, x, y) {
+  ctx.font = '700 13px Verdana, sans-serif';
+  ctx.textAlign = 'center';
+  const w2 = ctx.measureText(txt).width + 28;
+  ctx.fillStyle = 'rgba(16,11,6,0.88)';
+  ctx.beginPath(); ctx.roundRect(x - w2 / 2, y - 20, w2, 30, 8); ctx.fill();
+  ctx.strokeStyle = 'rgba(122,212,232,0.6)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(x - w2 / 2, y - 20, w2, 30, 8); ctx.stroke();
+  ctx.fillStyle = '#cfeef8';
+  ctx.fillText(txt, x, y);
+}
+function drawHints() {
+  const w = B.w;
+  // touch joystick visual: the drag is visible while it steers
+  if (B.touchVis && touchHeld) {
+    const [ax, ay] = B.touchVis;
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = '#7ad4e8'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(ax, ay, 26, 0, 7); ctx.stroke();
+    const D2 = [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]][touchHeld];
+    ctx.fillStyle = '#7ad4e8';
+    ctx.beginPath(); ctx.arc(ax + D2[0] * 20, ay + D2[1] * 20, 8, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+  if (!B.rookie || B.hintStage === 0) return;
+  const px = w.p.x * TS - B.cam.x, py = w.p.y * TS - B.cam.y + MQ;
+  const pulse = Math.sin(B.time * 3) * 3;
+  if (B.hintStage === 1) {
+    hintChip(IS_TOUCH ? 'DRAG anywhere to dig' : 'DIG — hold an ARROW (or WASD)', Math.max(150, Math.min(W - 150, px + TS / 2)), Math.max(70, py - 34 + pulse));
+  } else if (B.hintStage === 2 && B.time - B.hintShownAt < 6) {
+    hintChip(`gems pay — bank ${w.quota} to open the exit`, Math.max(170, Math.min(W - 170, px + TS / 2)), Math.max(70, py - 34));
+  } else if (B.hintStage === 3 && B.time - B.hintShownAt < 5) {
+    hintChip('banked. watch loose rocks overhead', Math.max(170, Math.min(W - 170, px + TS / 2)), Math.max(70, py - 34));
+  }
+}
+const DEATH_COACH = {
+  crush: 'A loose rock came down on you. Never linger where the ceiling hangs.',
+  bite: 'A gnasher got you. They follow walls — give them a cell of room.',
+  boom: 'You were inside a blast. TNT clears three by three.',
+};
 
 // ---------------------------------------------------------------------------
 // chrome — the company paperwork: parchment labels, mono values, brass rules
@@ -1074,7 +1132,8 @@ function drawResults() {
     ctx.font = '900 36px "Arial Black", Arial, sans-serif';
     ctx.fillStyle = PAL.danger;
     ctx.fillText('BURIED', W / 2, H / 2 - 100);
-    label(`attempt ${B.attempts} — the cave keeps the gems you banked? No. It keeps everything.`, W / 2, H / 2 - 60, 12, PAL.paper, 'center');
+    label(DEATH_COACH[B.deathCause] || 'The cave keeps everything you had not banked.', W / 2, H / 2 - 60, 12, PAL.paper, 'center');
+    label(`attempt ${B.attempts} — same cave, same rocks. Route smarter.`, W / 2, H / 2 - 34, 11, 'rgba(214,192,156,0.7)', 'center');
     label(IS_TOUCH ? 'TAP TO CLOCK BACK IN' : 'SPACE TO CLOCK BACK IN', W / 2, H / 2 + 60, 16, '#ffffff', 'center');
   }
 }
@@ -1115,6 +1174,28 @@ function runShot(name, f) {
   B.cave = d.cave; B.proof = d.proof; B.dailyParams = d.params || null;
   B.ghostTapes = [{ label: 'FOREMAN', color: '#7ad4e8', tape: d.proof.tape }];
   if (name === 'intro') { B.time = 0.4; draw(); document.title = 'shot-ready'; return; }
+  if (name === 'onboard') {
+    B.rookie = true;
+    startAttempt();
+    B.banner = null;
+    B.time = 1.2;
+    draw(); document.title = 'shot-ready'; return;
+  }
+  if (name === 'death') {
+    startAttempt();
+    B.banner = null;
+    const g2 = B.w.grid;
+    for (let y = 8; y <= 15; y++) for (let x = 20; x <= 24; x++) g2[y][x] = T.SPACE;
+    g2[16][22] = T.STEEL;
+    g2[9][22] = T.ROCK; B.w.fall[9][22] = 1;
+    g2[B.w.p.y][B.w.p.x] = T.SPACE;
+    B.w.p.x = 22; B.w.p.y = 14; B.w.p.px = 22; B.w.p.py = 14;
+    g2[14][22] = T.PLAYER;
+    for (let i = 0; i < 8 && !B.w.dead; i++) { tick(B.w, 0); spawnFX(B.w.events); for (const ev of B.w.events) { if (ev.t === 'crush') B.deathCause = 'crush'; } }
+    B.mode = 'results'; B.result = null;
+    B.time = 30; B.finishedAt = 29;
+    draw(); document.title = 'shot-ready'; return;
+  }
   if (name === 'map') {
     B.w = newWorld(d.cave);
     B.time = 30;
