@@ -4,6 +4,7 @@ import {
   CFG, T, dayString, dayNumber, dailyCave, newWorld, tick, solve,
   encodeTape, decodeTape, runTape, makeRng,
 } from './core.js';
+// (net.js is dynamically imported on first board use — the core stays offline-pure)
 
 const W = 1280, H = 720, TS = 32;
 const MQ = 42, HUD_H = 92;
@@ -31,7 +32,8 @@ const B = {
   leadX: 0, leadY: 0, lastMove: 0,
   parts: [], fxRng: null, gemPunchAt: -9, exitOpenAt: -9,
   rookie: false, hintStage: 0, hintShownAt: 0, deathCause: null, touchVis: null,
-  calFrom: null, calCells: [], calStore: null,
+  calFrom: null, calCells: [],
+  board: null, boardState: 'idle', boardFrom: null, posted: false, calStore: null,
   boomCols: new Set(),
   day: null, dayN: 1, cave: null, proof: null,
   w: null,                  // live world
@@ -221,6 +223,7 @@ function startAttempt() {
   B.hintStage = B.rookie ? 1 : 0;
   B.hintShownAt = 0;
   B.deathCause = null;
+  B.posted = false;         // a fresh attempt is a fresh claim for the board
   B.tape = [];
   B.attempts++;
   B.time = 0; B.tickAcc = 0;
@@ -266,6 +269,8 @@ addEventListener('keydown', (e) => {
     try { localStorage.setItem('dailydig_mute', B.muted ? '1' : '0'); } catch {}
   }
   if ((B.mode === 'intro' || B.mode === 'results') && k === 'a') { B.calFrom = B.mode; B.mode = 'calendar'; }
+  else if ((B.mode === 'intro' || B.mode === 'results') && k === 'b') { openBoard(B.mode); }
+  else if (B.mode === 'board' && (e.key === 'Escape' || k === 'b')) { B.mode = B.boardFrom || 'intro'; }
   else if (B.mode === 'calendar' && (e.key === 'Escape' || k === 'a')) { B.mode = B.calFrom || 'intro'; }
   else if (B.mode === 'intro' && (e.key === ' ' || e.key === 'Enter')) startAttempt();
   else if (B.mode === 'results' && (e.key === ' ' || e.key === 'Enter') && !resultsLocked()) startAttempt();
@@ -868,7 +873,7 @@ function draw() {
   ctx.fillStyle = '#0a0705'; ctx.fillRect(0, 0, W, H);
   if (B.mode === 'broken') { drawBroken(); return; }
   const w = B.w;
-  if (!w) { if (B.mode === 'calendar') drawCalendar(); else drawIntro(); return; }
+  if (!w) { if (B.mode === 'calendar') drawCalendar(); else if (B.mode === 'board') drawBoard(); else drawIntro(); return; }
 
   const lerp = Math.max(0, Math.min(1, B.tickAcc / CFG.TICK));
   const MV = new Map();
@@ -1026,6 +1031,92 @@ function draw() {
   if (B.mode === 'results') drawResults();
   if (B.mode === 'intro') drawIntro();
   if (B.mode === 'calendar') drawCalendar();
+  if (B.mode === 'board') drawBoard();
+}
+
+// ---------------------------------------------------------------------------
+// the board: everyone's shift, and nobody's word taken for it
+let NET = null;
+async function net() { if (!NET) NET = await import('./net.js'); return NET; }
+async function openBoard(from) {
+  B.boardFrom = from;
+  B.mode = 'board';
+  B.boardState = 'loading';
+  B.board = null;
+  try {
+    const n = await net();
+    const raw = await n.fetchBoard(B.day);
+    // physics is the referee: replay every claim before it ranks
+    const verified = [];
+    for (const e of raw) {
+      const tape = decodeTape(e.tape);
+      if (!tape) continue;
+      const r = runTape(B.cave, tape);
+      if (r.cleared && r.ticks === e.ticks) verified.push(e);
+    }
+    verified.sort((a, b) => a.ticks - b.ticks);
+    B.board = verified.slice(0, 50);
+    B.boardState = 'ok';
+  } catch {
+    B.boardState = 'offline';
+  }
+}
+async function postRun() {
+  if (!B.result || B.posted) return;
+  let name = '';
+  try { name = localStorage.getItem('dailydig_name') || ''; } catch {}
+  if (!name) {
+    name = (prompt('Miner name for the board (3-16 chars):') || '').trim().slice(0, 16);
+    if (name.length < 3) return;
+    try { localStorage.setItem('dailydig_name', name); } catch {}
+  }
+  B.boardState = 'posting';
+  try {
+    const n = await net();
+    const r = await n.publishRun(B.day, name, B.result.ticks, encodeTape(B.result.tape));
+    B.posted = r.ok;
+    B.boardState = r.ok ? 'posted' : 'offline';
+    if (r.ok) openBoard(B.boardFrom || 'results');
+  } catch {
+    B.boardState = 'offline';
+  }
+}
+function drawBoard() {
+  ctx.fillStyle = 'rgba(10,7,4,0.85)';
+  ctx.fillRect(0, 0, W, H);
+  const PX = W / 2 - 300, PY = 56, PW = 600, PH = H - 112;
+  panel(PX, PY, PW, PH);
+  label('DIG CO. — THE BOARD', W / 2, PY + 34, 12, 'rgba(201,163,92,0.9)', 'center');
+  label(`SHIFT ${B.dayN} — ${B.day} · every time re-verified by replay on your device`, W / 2, PY + 56, 9, 'rgba(122,212,232,0.7)', 'center');
+  brassRule(PX + 40, PY + 68, PW - 80);
+  if (B.boardState === 'loading') label('RAISING THE RELAYS…', W / 2, PY + 130, 12, PAL.paper, 'center');
+  else if (B.boardState === 'posting') label('POSTING YOUR SHIFT…', W / 2, PY + 130, 12, PAL.paper, 'center');
+  else if (B.boardState === 'offline') label('RELAYS UNREACHABLE — the cave does not care. Try again later.', W / 2, PY + 130, 11, PAL.danger, 'center');
+  else if (B.board && B.board.length === 0) label('NOBODY HAS POSTED THIS SHIFT YET. BE FIRST.', W / 2, PY + 130, 11, PAL.good, 'center');
+  else if (B.board) {
+    let y2 = PY + 96;
+    for (let i = 0; i < Math.min(12, B.board.length); i++) {
+      const e = B.board[i];
+      const mine = B.result && e.ticks === B.result.ticks && B.posted;
+      label(`${i + 1}.`, PX + 56, y2, 11, 'rgba(214,192,156,0.7)');
+      label(e.name.toUpperCase(), PX + 96, y2, 11, mine ? PAL.good : PAL.paper);
+      value(fmtT(e.ticks), PX + PW - 170, y2, 13, i === 0 ? PAL.good : PAL.paper, 'right');
+      const m = medalFor(e.ticks);
+      label(m.name, PX + PW - 96, y2, 8, MEDAL_COL[m.name] || PAL.paper, 'center');
+      y2 += 26;
+    }
+    if (B.board.length > 12) label(`+ ${B.board.length - 12} more verified miners`, W / 2, y2 + 4, 9, 'rgba(214,192,156,0.5)', 'center');
+  }
+  if (B.result && !B.posted && B.boardState === 'ok') {
+    ctx.fillStyle = 'rgba(122,212,232,0.18)';
+    ctx.beginPath(); ctx.roundRect(W / 2 - 120, PY + PH - 92, 240, 38, 10); ctx.fill();
+    ctx.strokeStyle = PAL.blueprint; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(W / 2 - 120, PY + PH - 92, 240, 38, 10); ctx.stroke();
+    label(`POST MY ${fmtT(B.result.ticks)}`, W / 2, PY + PH - 68, 12, PAL.blueprint, 'center');
+  } else if (B.posted) {
+    label('POSTED — your tape is on the wire, verifiable by anyone', W / 2, PY + PH - 74, 10, PAL.good, 'center');
+  }
+  label('B OR ESC TO CLOSE', W / 2, PY + PH - 22, 9, 'rgba(214,192,156,0.6)', 'center');
 }
 
 // ---------------------------------------------------------------------------
@@ -1361,7 +1452,7 @@ function drawIntro() {
     label(IS_TOUCH ? 'TAP TO CLOCK IN' : 'SPACE TO CLOCK IN', W / 2, PY + PH - 74, 18, '#ffffff', 'center');
   }
   label(IS_TOUCH ? 'DRAG ANYWHERE TO DIG' : 'WASD / ARROWS DIG · R RESTART · M MUTE', W / 2, PY + PH - 44, 10, 'rgba(214,192,156,0.7)', 'center');
-  label(IS_TOUCH ? 'THE LEDGER: tap top-left corner' : 'A — THE LEDGER (archive + medals)', W / 2, PY + PH - 62, 10, 'rgba(201,163,92,0.75)', 'center');
+  label(IS_TOUCH ? 'THE LEDGER: tap top-left corner' : 'A — THE LEDGER · B — THE BOARD', W / 2, PY + PH - 62, 10, 'rgba(201,163,92,0.75)', 'center');
   label('NEXT SHIFT IN ' + nextShiftIn(), W / 2, PY + PH - 22, 9, 'rgba(122,212,232,0.6)', 'center');
 }
 function drawResults() {
@@ -1410,7 +1501,7 @@ function drawResults() {
     ctx.beginPath(); ctx.roundRect(W / 2 - 130, shY, 260, 40, 10); ctx.stroke();
     label(copied ? (B.shareMode === 'share' ? 'SHARED' : 'COPIED — GO POST IT') : (navigator.share ? 'SHARE MY GHOST' : 'COPY SHARE + GHOST LINK'), W / 2, shY + 26, 13, copied ? PAL.good : PAL.blueprint, 'center');
     if (!IS_TOUCH) label('C ALSO WORKS', W / 2 + 200, shY + 26, 9, 'rgba(214,192,156,0.5)', 'center');
-    label(IS_TOUCH ? 'TAP ANYWHERE ELSE TO DIG AGAIN' : 'SPACE TO DIG AGAIN', W / 2, shY + 66, 13, '#ffffff', 'center');
+    label(IS_TOUCH ? 'TAP ANYWHERE ELSE TO DIG AGAIN' : 'SPACE TO DIG AGAIN · B THE BOARD', W / 2, shY + 66, 13, '#ffffff', 'center');
   } else {
     ctx.font = '900 36px "Arial Black", Arial, sans-serif';
     ctx.fillStyle = PAL.danger;
@@ -1432,6 +1523,15 @@ canvas.addEventListener('click', (e) => {
   const r0 = canvas.getBoundingClientRect();
   const cx0 = (e.clientX - r0.left) / r0.width * W;
   const cy0 = (e.clientY - r0.top) / r0.height * H;
+  if (B.mode === 'board') {
+    if (B.result && !B.posted && B.boardState === 'ok' &&
+        cx0 > W / 2 - 120 && cx0 < W / 2 + 120 && cy0 > 56 + (H - 112) - 92 && cy0 < 56 + (H - 112) - 54) {
+      postRun();
+      return;
+    }
+    B.mode = B.boardFrom || 'intro';
+    return;
+  }
   if (B.mode === 'calendar') {
     for (const c of B.calCells) {
       if (cx0 > c.x && cx0 < c.x + c.w && cy0 > c.y && cy0 < c.y + c.h) {
@@ -1479,6 +1579,17 @@ function runShot(name, f) {
   B.ghostTapes = [{ label: 'FOREMAN', color: '#7ad4e8', tape: d.proof.tape }];
   B.rookie = false;         // shots ignore the profile's history; only onboard opts in
   if (name === 'intro') { B.time = 0.4; draw(); document.title = 'shot-ready'; return; }
+  if (name === 'board') {
+    B.mode = 'board';
+    B.boardState = 'ok';
+    B.board = [
+      { name: 'MOLE', ticks: 231, pubkey: 'a' }, { name: 'PICKAXE PETE', ticks: 246, pubkey: 'b' },
+      { name: 'DEEPCUT', ticks: 259, pubkey: 'c' }, { name: 'CANARY', ticks: 280, pubkey: 'd' },
+      { name: 'SHALE', ticks: 305, pubkey: 'e' }, { name: 'RUBBLE ROSE', ticks: 333, pubkey: 'f' },
+    ];
+    B.time = 1;
+    draw(); document.title = 'shot-ready'; return;
+  }
   if (name === 'ledger') {
     const hist = {};
     const t0 = Date.parse(B.day + 'T00:00:00Z');
