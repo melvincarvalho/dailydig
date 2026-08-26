@@ -42,7 +42,9 @@ const B = {
   tickAcc: 0, time: 0,
   banner: null, toastT: 0, toast: '',
   shake: 0, finishedAt: 0, result: null,
-  muted: false, best: null, streak: { n: 0, last: '' },
+  muted: (() => { try { return localStorage.getItem('dailydig_mute') === '1'; } catch { return false; } })(),
+  best: null, streak: { n: 0, last: '' },
+  comboN: 0, comboAt: -9,
   copied: 0,
 };
 
@@ -91,17 +93,93 @@ function rumble(dur = 0.3, vol = 0.3, cut = 700) {
   const g = AC.createGain(); g.gain.value = vol;
   src.connect(f); f.connect(g); g.connect(master); src.start();
 }
+// gems climb a pentatonic ladder while the combo window holds
+const COMBO_SCALE = [660, 742, 880, 990, 1188, 1320, 1485, 1760];
 const SFX = {
-  dig: () => rumble(0.08, 0.1, 1400),
-  gem: () => { blip(880, 0.07, 'square', 0.14); blip(1320, 0.1, 'square', 0.1); },
-  thud: () => rumble(0.16, 0.22, 500),
-  boom: () => { rumble(0.5, 0.4, 380); blip(90, 0.35, 'sawtooth', 0.2, 40); },
+  dig: () => rumble(0.07 + Math.random() * 0.03, 0.09, 1200 + Math.random() * 500),
+  gem: () => {
+    if (B.time - B.comboAt < 1.4) B.comboN = Math.min(B.comboN + 1, COMBO_SCALE.length - 1);
+    else B.comboN = 0;
+    B.comboAt = B.time;
+    const f = COMBO_SCALE[B.comboN];
+    blip(f, 0.08, 'square', 0.14);
+    blip(f * 1.5, 0.11, 'square', 0.09);
+    if (B.comboN >= 3) blip(f * 2, 0.14, 'triangle', 0.08);
+  },
+  thud: () => { rumble(0.16, 0.22, 500); blip(70, 0.1, 'sine', 0.12, 45); },
+  boom: () => {
+    rumble(0.55, 0.42, 360);
+    blip(80, 0.4, 'sawtooth', 0.22, 34);
+    blip(48, 0.5, 'sine', 0.26, 30);
+    setTimeout(() => rumble(0.3, 0.18, 900), 60);
+  },
   open: () => [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, 0.12, 'square', 0.13), i * 90)),
-  clear: () => [523, 659, 784, 1047, 1319].forEach((f, i) => setTimeout(() => blip(f, 0.15, 'square', 0.13), i * 100)),
-  die: () => { rumble(0.4, 0.35, 600); blip(220, 0.4, 'sawtooth', 0.16, 60); },
-  push: () => rumble(0.09, 0.12, 900),
-  prop: () => { rumble(0.14, 0.2, 800); blip(160, 0.12, 'triangle', 0.12, 90); },
+  clear: () => [523, 659, 784, 990, 1188, 1320].forEach((f, i) => setTimeout(() => blip(f, 0.16, 'square', 0.13), i * 95)),
+  die: () => { rumble(0.4, 0.35, 600); blip(220, 0.45, 'sawtooth', 0.16, 55); blip(110, 0.5, 'triangle', 0.12, 40); },
+  push: () => rumble(0.11, 0.13, 700),
+  prop: () => { rumble(0.14, 0.22, 800); blip(200, 0.06, 'square', 0.1); blip(150, 0.12, 'triangle', 0.12, 80); },
+  clockin: () => { blip(440, 0.06, 'square', 0.1); blip(660, 0.09, 'square', 0.1); },
 };
+
+// the shift tune: one mining groove, two eight-bar passages, lookahead-scheduled
+const TUNE = {
+  bpm: 92, root: 43,
+  bassA: [0, -1, 0, 7, 0, -1, 5, -1, 3, -1, 3, 10, 3, -1, 7, -1],
+  bassB: [8, -1, 8, 15, 8, -1, 7, -1, 5, -1, 5, 12, 5, -1, 3, -1],
+  leadA: [-1, -1, 12, -1, -1, 15, -1, 14, -1, -1, 10, -1, 12, -1, -1, -1],
+  leadB: [-1, 19, -1, 17, -1, -1, 15, -1, -1, 17, -1, 15, -1, 14, -1, -1],
+};
+let MUS = null;
+function musicStart() {
+  if (!AC || MUS) return;
+  const stepDur = 60 / TUNE.bpm / 4;
+  const mg = AC.createGain(); mg.gain.value = 0.3; mg.connect(master);
+  MUS = { step: 0, next: AC.currentTime + 0.06, timer: null, gain: mg };
+  const midi = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  function loop() {
+    while (MUS && MUS.next < AC.currentTime + 0.14) {
+      const bar = (MUS.step / 16 | 0) % 16;
+      const useB = bar >= 8;
+      const i = MUS.step % 16, t = MUS.next;
+      const b = (useB ? TUNE.bassB : TUNE.bassA)[i];
+      if (b >= 0) {
+        const o = AC.createOscillator(), g = AC.createGain();
+        o.type = 'triangle'; o.frequency.value = midi(TUNE.root + b);
+        g.gain.setValueAtTime(0.2, t); g.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 0.92);
+        o.connect(g); g.connect(mg); o.start(t); o.stop(t + stepDur);
+      }
+      const l = (useB ? TUNE.leadB : TUNE.leadA)[i];
+      if (l >= 0 && bar % 4 !== 3) {
+        const o = AC.createOscillator(), g = AC.createGain();
+        o.type = 'square'; o.frequency.value = midi(TUNE.root + 24 + l);
+        g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.7);
+        o.connect(g); g.connect(mg); o.start(t); o.stop(t + stepDur * 1.8);
+      }
+      if (i % 8 === 0) {
+        const o = AC.createOscillator(), g = AC.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(110, t);
+        o.frequency.exponentialRampToValueAtTime(45, t + 0.09);
+        g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+        o.connect(g); g.connect(mg); o.start(t); o.stop(t + 0.12);
+      }
+      if (i % 4 === 2) {
+        const n = AC.sampleRate * 0.03 | 0, buf = AC.createBuffer(1, n, AC.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let j = 0; j < n; j++) d[j] = (Math.random() * 2 - 1) * (1 - j / n);
+        const sn = AC.createBufferSource(); sn.buffer = buf;
+        const hp = AC.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 5000;
+        const g = AC.createGain(); g.gain.value = 0.04;
+        sn.connect(hp); hp.connect(g); g.connect(mg); sn.start(t);
+      }
+      MUS.next += stepDur; MUS.step++;
+    }
+    if (MUS) MUS.timer = setTimeout(loop, 45);
+  }
+  loop();
+}
+function musicStop() {
+  if (MUS) { clearTimeout(MUS.timer); try { MUS.gain.disconnect(); } catch {} MUS = null; }
+}
 
 // ---------------------------------------------------------------------------
 // day bootstrap
@@ -133,6 +211,8 @@ function loadDay() {
 }
 
 function startAttempt() {
+  SFX.clockin && AC && SFX.clockin();
+  musicStart();
   B.w = newWorld(B.cave);
   B.parts = [];
   B.fxRng = makeRng((B.cave.seed ^ 0x5f3759df) >>> 0);
@@ -179,7 +259,11 @@ addEventListener('keydown', (e) => {
   }
   if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
   audio();
-  if (k === 'm') { B.muted = !B.muted; if (master) master.gain.value = B.muted ? 0 : 0.4; }
+  if (k === 'm') {
+    B.muted = !B.muted;
+    if (master) master.gain.value = B.muted ? 0 : 0.4;
+    try { localStorage.setItem('dailydig_mute', B.muted ? '1' : '0'); } catch {}
+  }
   if ((B.mode === 'intro' || B.mode === 'results') && k === 'a') { B.calFrom = B.mode; B.mode = 'calendar'; }
   else if (B.mode === 'calendar' && (e.key === 'Escape' || k === 'a')) { B.mode = B.calFrom || 'intro'; }
   else if (B.mode === 'intro' && (e.key === ' ' || e.key === 'Enter')) startAttempt();
@@ -452,10 +536,12 @@ function update(dt) {
       B.best = (s.history || {})[B.day];
       B.mode = 'results';
       B.finishedAt = B.time;
+      musicStop();
     } else if (B.w.dead) {
       B.banner = { text: 'BURIED', sub: 'tap or SPACE — back to the shaft top', t: 2.2 };
       B.mode = 'results'; B.result = null;
       B.finishedAt = B.time;
+      musicStop();
     }
   }
   if (B.tape.length >= CFG.replayCap) { B.mode = 'results'; B.result = null; }
