@@ -38,11 +38,19 @@ export async function runProofs(C) {
   });
 
   proof('generation: exactly one exit, gems counted honestly', () => {
-    const cave = C.generate(999);
-    let exits = 0, gems = 0;
-    for (const row of cave.grid) for (const c of row) { if (c === C.T.EXIT) exits++; if (c === C.T.GEM) gems++; }
-    assert(exits === 1, exits + ' exits');
-    assert(gems === cave.gems, 'gem count lies');
+    for (const seed of [999, 4711, 8123, 15551]) {
+      const cave = C.generate(seed);
+      let exits = 0, gems = 0;
+      for (const row of cave.grid) for (const c of row) { if (c === C.T.EXIT) exits++; if (c === C.T.GEM) gems++; }
+      assert(exits === 1, seed + ': ' + exits + ' exits');
+      assert(gems === cave.gems, seed + ': gem count lies (' + cave.gems + ' claimed, ' + gems + ' real)');
+    }
+    for (const day of ['2026-08-03', '2026-08-08']) {
+      const d = C.dailyCave(day);
+      let gems = 0;
+      for (const row of d.cave.grid) for (const c of row) if (c === C.T.GEM) gems++;
+      assert(gems === d.cave.gems, day + ': daily gem ledger lies');
+    }
   });
 
   proof('physics: a rock falls one cell per tick through space', () => {
@@ -214,6 +222,36 @@ export async function runProofs(C) {
     let players = 0;
     for (const row of w.grid) for (const c of row) if (c === C.T.PLAYER) players++;
     assert(players <= 1, players + ' players in grid');
+  });
+
+  proof('editorial: the weekday curve is real (Mon gentle, Sat mean)', () => {
+    const mon = C.dayParams('2026-08-03'), sat = C.dayParams('2026-08-08'), sun = C.dayParams('2026-08-09');
+    assert(mon.D === 1 && sat.D === 6 && sun.D === 3, 'D mapping wrong');
+    assert(mon.minPar < sat.minPar, 'Saturday not harder than Monday');
+    assert(mon.quotaFrac < sat.quotaFrac, 'Saturday quota not meaner');
+    assert(JSON.stringify(C.dayParams('2026-08-03')) === JSON.stringify(C.dayParams('2026-08-03')), 'params nondeterministic');
+  });
+
+  proof('editorial: dailies respect their own par floor', () => {
+    // these days are known to reject at least one candidate seed, so a
+    // dropped acceptance gate ships a different (thinner) cave here
+    for (const day of ['2026-08-05', '2026-08-07', '2026-08-08']) {
+      const d = C.dailyCave(day);
+      const P = C.dayParams(day);
+      assert(d.proof.ticks >= P.minPar, day + ' shipped under the floor (' + d.proof.ticks + ' < ' + P.minPar + ')');
+      assert(d.attempt > 0, day + ' no longer engages the gate — pick new proof days');
+    }
+  });
+
+  proof('generation: setpieces exist and are counted', () => {
+    let vaults = 0, guards = 0;
+    for (let s = 1; s <= 8; s++) {
+      const cave = C.generate(s * 1000 + 7);
+      assert(cave.setpieces, 'no setpiece ledger');
+      vaults += cave.setpieces.vaults; guards += cave.setpieces.guards;
+    }
+    assert(vaults >= 3, 'vaults barely ever build (' + vaults + '/8)');
+    assert(guards >= 3, 'guarded veins barely ever build (' + guards + '/8)');
   });
 
   proof('day plumbing: numbering is stable and 1-based at launch', () => {

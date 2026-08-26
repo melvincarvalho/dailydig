@@ -11,7 +11,7 @@ export const CFG = {
   quotaFrac: 0.6,          // fraction of gems required to open the exit
   pushDelay: 1,            // extra tick before a push lands
   solverBudget: 2600,      // max ticks the Foreman may spend
-  seedTries: 12,           // candidate seeds tried before a day is declared bad
+  seedTries: 44,           // candidate seeds tried before a day is declared bad
   genRocks: 0.16, genGems: 0.055, genCrates: 7, genShafts: 9, genGnashers: 5,
   replayCap: 6000,         // hard cap on recorded ticks
 };
@@ -57,8 +57,32 @@ export function dayNumber(day) {
 }
 
 // ---------------------------------------------------------------------------
+// the editorial curve: crossword rhythm — Monday is a stroll, Saturday is a
+// shift you talk about. Every knob derives from the date alone.
+export function dayParams(day) {
+  const dow = new Date(day + 'T00:00:00Z').getUTCDay();      // 0 Sun .. 6 Sat
+  const D = [3, 1, 2, 3, 4, 5, 6][dow];                      // difficulty 1..6
+  return {
+    D,
+    rocks: 0.13 + 0.008 * D,
+    gnashers: 3 + Math.floor(D / 2),
+    crates: 6 + (D > 3 ? 2 : 0),
+    shafts: 8 + D,
+    quotaFrac: 0.52 + 0.025 * D,
+    vaults: 1 + (D >= 5 ? 1 : 0),
+    guards: 1 + (D >= 4 ? 1 : 0),
+    minPar: 125 + 18 * D,
+    maxSpaceFrac: 0.34,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // cave generation
-export function generate(seed) {
+export function generate(seed, P) {
+  P = P || {
+    rocks: CFG.genRocks, gnashers: CFG.genGnashers, crates: CFG.genCrates,
+    shafts: CFG.genShafts, quotaFrac: CFG.quotaFrac, vaults: 1, guards: 1,
+  };
   const { CW, CH } = CFG;
   const rng = makeRng(seed);
   const g = Array.from({ length: CH }, () => new Array(CW).fill(T.DIRT));
@@ -90,13 +114,16 @@ export function generate(seed) {
 
   // rocks, then gem veins (clusters read as ore seams, not confetti)
   for (let y = 1; y < CH - 1; y++) for (let x = 1; x < CW - 1; x++) {
-    if (g[y][x] === T.DIRT && rng() < CFG.genRocks) g[y][x] = T.ROCK;
+    if (g[y][x] === T.DIRT && rng() < P.rocks) g[y][x] = T.ROCK;
   }
   let gems = 0;
   const veins = 10 + (rng() * 5 | 0);
   for (let i = 0; i < veins; i++) {
-    let x = 3 + (rng() * (CW - 6) | 0), y = 3 + (rng() * (CH - 6) | 0);
-    const n = 2 + (rng() * 4 | 0);
+    // veins pool toward the depths: risk pays
+    let x = 3 + (rng() * (CW - 6) | 0);
+    let y = 3 + ((CH - 9) * Math.pow(rng(), 0.6) | 0);
+    const deep = y > CH * 0.55;
+    const n = (deep ? 3 : 2) + (rng() * 4 | 0);
     for (let s = 0; s < n; s++) {
       if (g[y] && g[y][x] === T.DIRT) { g[y][x] = T.GEM; gems++; }
       x += (rng() * 3 | 0) - 1; y += rng() < 0.6 ? 1 : 0;
@@ -108,13 +135,13 @@ export function generate(seed) {
   }
 
   // TNT crates near masonry: routing tools for those who look
-  for (let i = 0; i < CFG.genCrates; i++) {
+  for (let i = 0; i < P.crates; i++) {
     const x = 2 + (rng() * (CW - 4) | 0), y = 2 + (rng() * (CH - 4) | 0);
     if (g[y][x] === T.DIRT) g[y][x] = T.CRATE;
   }
 
   // propped shafts: a timber PROP holds a rock column — dig it, it all comes down
-  for (let i = 0; i < CFG.genShafts; i++) {
+  for (let i = 0; i < P.shafts; i++) {
     const x = 3 + (rng() * (CW - 6) | 0), y = 6 + (rng() * (CH - 10) | 0);
     if (g[y][x] !== T.DIRT) continue;
     g[y][x] = T.PROP;
@@ -123,10 +150,58 @@ export function generate(seed) {
     if (g[y + 1][x] === T.DIRT) g[y + 1][x] = T.SPACE;
   }
 
+  // SETPIECE — the TNT vault: a walled pocket of bonus gems. Outside it, a
+  // prop holds a rock over a crate: knock the prop, the rock falls, the
+  // crate blows the wall. The quota never depends on vault gems (the daily
+  // acceptance rule guarantees the Foreman cleared quota without them).
+  const setpieces = { vaults: 0, guards: 0 };
+  for (let v = 0; v < (P.vaults || 0); v++) {
+    const vx = 10 + (rng() * (CW - 22) | 0), vy = 8 + (rng() * (CH - 16) | 0);
+    let clear = true;
+    for (let y = vy; y < vy + 4 && clear; y++) for (let x = vx; x < vx + 6; x++) {
+      if (g[y][x] === T.STEEL || g[y][x] === T.EXIT) { clear = false; break; }
+    }
+    if (!clear) continue;
+    for (let y = vy; y < vy + 4; y++) for (let x = vx; x < vx + 6; x++) {
+      g[y][x] = (y === vy || y === vy + 3 || x === vx || x === vx + 5) ? T.WALL : T.DIRT;
+    }
+    for (let k = 0; k < 5; k++) {
+      const gx = vx + 1 + (rng() * 4 | 0), gy = vy + 1 + (rng() * 2 | 0);
+      if (g[gy][gx] === T.DIRT) { g[gy][gx] = T.GEM; gems++; }
+    }
+    // the fuse, hung on the left wall: rock over prop over crate
+    const bx = vx - 1, by = vy + 2;
+    if (bx > 2 && g[by][bx] !== T.STEEL) {
+      g[by][bx] = T.CRATE;
+      if (g[by - 1][bx] !== T.STEEL) g[by - 1][bx] = T.PROP;
+      if (g[by - 2][bx] !== T.STEEL) g[by - 2][bx] = T.ROCK;
+      if (g[by][bx - 1] !== T.STEEL) g[by][bx - 1] = T.DIRT;
+      if (g[by - 1][bx - 1] !== T.STEEL) g[by - 1][bx - 1] = T.DIRT;
+      setpieces.vaults++;
+    }
+  }
+  // SETPIECE — the guarded vein: a rich seam whose approach runs under a
+  // prop-held column. Take the gems the slow way, or drop the roof first.
+  for (let gv = 0; gv < (P.guards || 0); gv++) {
+    const gx = 8 + (rng() * (CW - 16) | 0), gy = 10 + (rng() * (CH - 16) | 0);
+    if (g[gy][gx] === T.STEEL) continue;
+    for (let k = 0; k < 4; k++) {
+      const vx2 = gx + k;
+      if (g[gy][vx2] !== T.STEEL && g[gy][vx2] !== T.EXIT) { g[gy][vx2] = T.GEM; gems++; }
+    }
+    const px2 = gx + 1, py2 = gy - 2;
+    if (py2 > 3 && g[py2][px2] !== T.STEEL) {
+      g[py2][px2] = T.PROP;
+      for (let k = 1; k <= 2; k++) if (g[py2 - k][px2] !== T.STEEL) g[py2 - k][px2] = T.ROCK;
+      if (g[py2 + 1][px2] !== T.STEEL && g[py2 + 1][px2] !== T.GEM) g[py2 + 1][px2] = T.DIRT;
+      setpieces.guards++;
+    }
+  }
+
   // gnashers patrol carved pockets
   const gnashers = [];
   let placed = 0, guard = 0;
-  while (placed < CFG.genGnashers && guard++ < 400) {
+  while (placed < P.gnashers && guard++ < 400) {
     const x = 4 + (rng() * (CW - 8) | 0), y = 4 + (rng() * (CH - 8) | 0);
     if (g[y][x] === T.SPACE) { g[y][x] = T.GNASH; gnashers.push({ x, y, dir: rng() * 4 | 0 }); placed++; }
   }
@@ -140,7 +215,11 @@ export function generate(seed) {
   g[ey][ex] = T.EXIT;
   if (g[ey - 1][ex] === T.ROCK) g[ey - 1][ex] = T.DIRT;
 
-  return { grid: g, start: [sx, sy], exit: [ex, ey], gems, seed };
+  // the ledger is the grid: recount after every paver has had its say
+  gems = 0;
+  for (const row of g) for (const c of row) if (c === T.GEM) gems++;
+
+  return { grid: g, start: [sx, sy], exit: [ex, ey], gems, seed, quotaFrac: P.quotaFrac || CFG.quotaFrac, setpieces };
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +235,7 @@ export function newWorld(cave) {
   return {
     grid, fall: Array.from({ length: CFG.CH }, () => new Uint8Array(CFG.CW)),
     p: { x: sx, y: sy, px: sx, py: sy, dir: 1, alive: true, pushT: 0, moving: false },
-    gnashers, gems: 0, gemsTotal: cave.gems, quota: Math.ceil(cave.gems * CFG.quotaFrac),
+    gnashers, gems: 0, gemsTotal: cave.gems, quota: Math.ceil(cave.gems * (cave.quotaFrac || CFG.quotaFrac)),
     exit: cave.exit, exitOpen: false, done: false, dead: false, ticks: 0,
     boomQueue: [], moves: [], events: [],
   };
@@ -372,10 +451,17 @@ function foremanStep(w) {
 // Every client derives and verifies this independently — provable fairness.
 export function dailyCave(day) {
   const base = fnv('dailydig:' + day);
+  const P = dayParams(day);
   for (let i = 0; i < CFG.seedTries; i++) {
-    const cave = generate((base + i * 0x9E3779B9) >>> 0);
+    const cave = generate((base + i * 0x9E3779B9) >>> 0, P);
+    // editorial gates before we even bother the Foreman
+    let space = 0;
+    for (const row of cave.grid) for (const c of row) if (c === T.SPACE) space++;
+    if (space / (CFG.CW * CFG.CH) > P.maxSpaceFrac) continue;
     const proof = solve(cave);
-    if (proof.cleared) return { cave, proof, attempt: i };
+    if (!proof.cleared) continue;
+    if (proof.ticks < P.minPar) continue;      // too easy is also broken
+    return { cave, proof, attempt: i, params: P };
   }
   return null;
 }

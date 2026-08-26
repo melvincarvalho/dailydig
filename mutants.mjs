@@ -10,7 +10,7 @@ const source = readFileSync(join(here, 'core.js'), 'utf8');
 
 const MUTANTS = [
   ['daily seed ignores the day', "const base = fnv('dailydig:' + day);", "const base = fnv('dailydig:');"],
-  ['solver verification skipped', 'if (proof.cleared) return { cave, proof, attempt: i };', 'if (true) return { cave, proof, attempt: i };'],
+  ['solver verification skipped', 'if (!proof.cleared) continue;', 'if (false) continue;'],
   ['rim left open', 'for (let x = 0; x < CW; x++) { g[0][x] = T.STEEL; g[CH - 1][x] = T.STEEL; }', 'for (let x = 0; x < CW; x++) { }'],
   ['gravity stops', "if (below === T.SPACE) {", "if (false) {"],
   ['rocks roll uphill only', "if (cellAt(w, x - 1, y) === T.SPACE && cellAt(w, x - 1, y + 1) === T.SPACE) {", "if (false) {"],
@@ -22,6 +22,10 @@ const MUTANTS = [
   ['codec drops the cap', 'if (v > 4) return null;', 'if (false) return null;'],
   ['world hash goes blind to the grid', 'for (let y = 0; y < CFG.CH; y++) for (let x = 0; x < CFG.CW; x++) mix(w.grid[y][x].charCodeAt(0));', 'mix(0);'],
   ['rng loses its seed', 'let a = seed >>> 0;', 'let a = 1;'],
+  ['weekday curve flattened', "const D = [3, 1, 2, 3, 4, 5, 6][dow];", 'const D = 1;'],
+  ['easy days ship (par floor dropped)', 'if (proof.ticks < P.minPar) continue;      // too easy is also broken', 'if (false) continue;'],
+  ['vault setpieces vanish', 'for (let v = 0; v < (P.vaults || 0); v++) {', 'for (let v = 0; v < 0; v++) {'],
+  ['guarded veins vanish', 'for (let gv = 0; gv < (P.guards || 0); gv++) {', 'for (let gv = 0; gv < 0; gv++) {'],
   ['par is a lie', 'return { cleared: w.done, ticks: w.ticks, tape, gems: w.gems, quota: w.quota };', 'return { cleared: w.done, ticks: 0, tape, gems: w.gems, quota: w.quota };'],
 ];
 
