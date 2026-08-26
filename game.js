@@ -143,7 +143,7 @@ function startAttempt() {
   B.tape = [];
   B.attempts++;
   B.time = 0; B.tickAcc = 0;
-  B.ghosts = B.ghostTapes.map((g) => ({ ...g, world: newWorld(B.cave), i: 0, done: false }));
+  B.ghosts = B.ghostTapes.map((g) => ({ ...g, world: newWorld(B.cave), i: 0, done: false, trail: [], beaten: false, finished: false }));
   B.mode = 'play';
   B.banner = { text: `SHIFT ${B.dayN}`, sub: B.day + ' — quota ' + B.w.quota, t: 1.6 };
   snapCam(true);
@@ -377,6 +377,7 @@ function snapCam(hard) {
 function update(dt) {
   B.time += dt;
   if (B.banner) { B.banner.t -= dt; if (B.banner.t <= 0) B.banner = null; }
+  if (B.toastT > 0) B.toastT -= dt;
   B.shake = Math.max(0, B.shake - 30 * dt);
   if (B.mode !== 'play') return;
   B.tickAcc += dt;
@@ -401,10 +402,21 @@ function update(dt) {
     }
 
     for (const g of B.ghosts) {
-      if (g.done) continue;
+      if (g.done) { if (!g.finished && g.world.done) { g.finished = true; B.banner = { text: `${g.label} CLOCKED OUT`, sub: `${fmtT(g.world.ticks)} — finish yours`, t: 1.8 }; } continue; }
+      const gp = g.world.p;
+      if (g.trail.length === 0 || g.trail[g.trail.length - 1][0] !== gp.x || g.trail[g.trail.length - 1][1] !== gp.y) {
+        g.trail.push([gp.x, gp.y]);
+        if (g.trail.length > 14) g.trail.shift();
+      }
       tick(g.world, g.i < g.tape.length ? g.tape[g.i] : 0);
       g.i++;
       if (g.world.done || g.world.dead || g.i > g.tape.length + 30) g.done = true;
+      // the beat moment: your gems overtake this ghost's
+      if (!g.beaten && B.w.gems > g.world.gems && B.w.gems > 0) {
+        g.beaten = true;
+        B.toast = `AHEAD OF THE ${g.label} ON GEMS`;
+        B.toastT = 2.0;
+      }
     }
     if (B.w.done) {
       const res = { ticks: B.w.ticks, attempts: B.attempts, tape: B.tape.slice(), day: B.day };
@@ -852,10 +864,25 @@ function draw() {
     ctx.restore();
   }
 
-  // ghosts under the player
+  // ghosts under the player: breadcrumb trail, body, name tag
   for (const g of B.ghosts) {
     if (g.done && g.world.done) continue;
-    drawDigger(g.world.p, lerp, g.color, 0.4, g.world.p.moving);
+    for (let ti = 0; ti < g.trail.length; ti++) {
+      const [tx2, ty2] = g.trail[ti];
+      ctx.fillStyle = g.color + Math.round(8 + (ti / g.trail.length) * 40).toString(16).padStart(2, '0');
+      ctx.fillRect(tx2 * TS + TS / 2 - 3, ty2 * TS + TS / 2 - 3, 6, 6);
+    }
+    drawDigger(g.world.p, lerp, g.color, 0.42, g.world.p.moving);
+    const gp = g.world.p;
+    const gx2 = (gp.px + (gp.x - gp.px) * lerp) * TS + TS / 2;
+    const gy2 = (gp.py + (gp.y - gp.py) * lerp) * TS;
+    ctx.font = '700 9px Verdana, sans-serif';
+    ctx.textAlign = 'center';
+    const tw3 = ctx.measureText(g.label).width + 12;
+    ctx.fillStyle = 'rgba(10,7,4,0.7)';
+    ctx.beginPath(); ctx.roundRect(gx2 - tw3 / 2, gy2 - 47, tw3, 14, 4); ctx.fill();
+    ctx.fillStyle = g.color;
+    ctx.fillText(g.label, gx2, gy2 - 36.5);
   }
   if (!w.dead) drawDigger(w.p, lerp, 'me', 1, w.p.moving);
 
@@ -873,12 +900,43 @@ function draw() {
   }
   ctx.restore();
 
+  if (B.mode === 'play') drawGhostArrows();
   if (B.mode === 'play') drawHints();
   drawMarquee();
   drawHUD();
   if (B.banner) drawBanner();
+  if (B.toastT > 0 && B.mode === 'play') {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, B.toastT * 2);
+    label(B.toast, W / 2, H * 0.6, 14, '#7ce88a', 'center');
+    ctx.restore();
+  }
   if (B.mode === 'results') drawResults();
   if (B.mode === 'intro') drawIntro();
+}
+
+// ---------------------------------------------------------------------------
+// off-screen ghosts point at themselves from the viewport edge
+function drawGhostArrows() {
+  for (const g of B.ghosts) {
+    if (g.done) continue;
+    const gp = g.world.p;
+    const sx = gp.x * TS + TS / 2 - B.cam.x, sy = gp.y * TS + TS / 2 - B.cam.y + MQ;
+    if (sx > 20 && sx < VW - 20 && sy > MQ + 20 && sy < MQ + VH - 20) continue;
+    const cx2 = Math.max(46, Math.min(VW - 46, sx)), cy2 = Math.max(MQ + 46, Math.min(MQ + VH - 46, sy));
+    const a = Math.atan2(sy - cy2, sx - cx2);
+    ctx.save();
+    ctx.translate(cx2, cy2);
+    ctx.rotate(a);
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = g.color;
+    ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-6, -8); ctx.lineTo(-2, 0); ctx.lineTo(-6, 8); ctx.closePath(); ctx.fill();
+    ctx.rotate(-a);
+    ctx.font = '700 8px Verdana, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(243,231,200,0.9)';
+    ctx.fillText(g.label, 0, 20);
+    ctx.restore();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1147,7 +1205,18 @@ function drawResults() {
     ctx.fillStyle = PAL.good;
     ctx.fillText(fmtT(res.ticks), W / 2, H / 2 - 110);
     stamp(m.name, W / 2 + 190, H / 2 - 122, m.name === 'SHIFT BOSS' ? '#3c9ab8' : '#b8563c');
-    label(`FOREMAN ${fmtT(B.proof.ticks)} · ATTEMPT ${res.attempts} · STREAK ${B.streak.n} · NEXT SHIFT ${nextShiftIn()}`, W / 2, H / 2 - 74, 11, PAL.ink, 'center');
+    {
+      const rows = [['YOU', res.ticks, '#f3e7c8']];
+      for (const g of B.ghosts) if (g.world.done) rows.push([g.label, g.world.ticks, g.color]);
+      rows.sort((r1, r2) => r1[1] - r2[1]);
+      let rx2 = W / 2 - (rows.length * 150) / 2 + 75;
+      for (let i2 = 0; i2 < rows.length; i2++) {
+        const [nm, tk, col] = rows[i2];
+        label(`${i2 + 1}. ${nm}`, rx2, H / 2 - 84, 10, col, 'center');
+        value(fmtT(tk) + (nm === 'YOU' ? '' : ` (${tk > res.ticks ? '+' : '−'}${fmtT(Math.abs(tk - res.ticks))})`), rx2, H / 2 - 66, 13, col, 'center');
+        rx2 += 150;
+      }
+    }
     ctx.font = `700 14px Verdana, sans-serif`; ctx.fillStyle = PAL.paper;
     ctx.fillText(res.ticks <= B.proof.ticks ? 'You outdug the Foreman. The company is watching.' :
       'Share your ghost — the link IS the replay.', W / 2, H / 2 - 40);
@@ -1203,7 +1272,16 @@ function stepWorld(n, inputFn) {
     tick(B.w, inp);
     spawnFX(B.w.events);
     tickParts(CFG.TICK);
-    for (const g of B.ghosts) { if (!g.done) { tick(g.world, g.i < g.tape.length ? g.tape[g.i] : 0); g.i++; if (g.world.done || g.world.dead) g.done = true; } }
+    for (const g of B.ghosts) {
+      if (g.done) continue;
+      const gp = g.world.p;
+      if (g.trail.length === 0 || g.trail[g.trail.length - 1][0] !== gp.x || g.trail[g.trail.length - 1][1] !== gp.y) {
+        g.trail.push([gp.x, gp.y]);
+        if (g.trail.length > 14) g.trail.shift();
+      }
+      tick(g.world, g.i < g.tape.length ? g.tape[g.i] : 0); g.i++;
+      if (g.world.done || g.world.dead) g.done = true;
+    }
   }
   snapCam(true);
 }
