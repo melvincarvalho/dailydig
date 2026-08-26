@@ -14,15 +14,35 @@
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="theme-color" content="#171008">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <style>
     html, body { margin: 0; height: 100%; background: #0a0705; overflow: hidden; touch-action: none;
                  overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
     body { display: flex; align-items: center; justify-content: center; }
     canvas { max-width: 100vw; max-height: 100vh; max-height: 100dvh; aspect-ratio: 16 / 9; width: 100%; }
+    #rot { display: none; }
+    @media (orientation: portrait) and (pointer: coarse) {
+      #rot {
+        display: block; position: fixed; left: 50%; top: 12%; transform: translateX(-50%); pointer-events: none;
+        color: #e8c987; background: rgba(23,16,8,0.92); border: 1px solid rgba(201,163,92,0.6);
+        border-radius: 12px; padding: 14px 22px; font: 700 15px Verdana, sans-serif;
+        letter-spacing: 2px; text-align: center; z-index: 2;
+      }
+      #rot span { display: block; margin-top: 6px; font-size: 11px; color: rgba(214,192,156,0.8); letter-spacing: 1px; }
+    }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
+  <div id="rot">BEST IN LANDSCAPE<br><span>rotate your phone — the mine is wide</span></div>
   <script type="module" src="game.js"></script>
+  <script>
+    if ('serviceWorker' in navigator && location.protocol === 'https:')
+      addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  </script>
 </body>
 </html>
