@@ -742,8 +742,8 @@ function medalTargets() {
   const par = B.proof.ticks;
   return [
     { name: 'SHIFT BOSS', t: par },
-    { name: 'GOLD', t: Math.ceil(par * 1.7) },
-    { name: 'SILVER', t: Math.ceil(par * 2.8) },
+    { name: 'GOLD', t: Math.floor(par * 1.7) },
+    { name: 'SILVER', t: Math.floor(par * 2.8) },
   ];
 }
 function value(txt, x, y, size = 26, color = PAL.paper, align = 'left') {
