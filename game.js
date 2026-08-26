@@ -2,7 +2,7 @@
 // The sim lives in core.js; this file may read it and may never steer it.
 import {
   CFG, T, dayString, dayNumber, dailyCave, newWorld, tick, solve,
-  encodeTape, decodeTape, runTape, makeRng,
+  encodeTape, decodeTape, runTape, makeRng, GENV,
 } from './core.js';
 // (net.js is dynamically imported on first board use — the core stays offline-pure)
 
@@ -195,8 +195,14 @@ function loadDay() {
   }
   B.day = day;
   B.dayN = dayNumber(day);
-  const d = dailyCave(day);
+  let hint = null;
+  const hintKey = `dailydig_hint_${GENV}_${day}`;
+  try { const h = localStorage.getItem(hintKey); if (h !== null) hint = parseInt(h, 10); } catch {}
+  const t0 = performance.now();
+  const d = dailyCave(day, hint);
   if (!d) { B.mode = 'broken'; return; }
+  B.bootMs = Math.round(performance.now() - t0);
+  try { localStorage.setItem(hintKey, String(d.attempt)); } catch {}
   B.cave = d.cave; B.proof = d.proof; B.dailyParams = d.params || null;
   B.ghostTapes = [{ label: 'FOREMAN', color: '#7ad4e8', tape: d.proof.tape }];
   if (ghostParam) {

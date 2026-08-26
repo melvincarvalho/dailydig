@@ -254,6 +254,21 @@ export async function runProofs(C) {
     assert(guards >= 3, 'guarded veins barely ever build (' + guards + '/8)');
   });
 
+  proof('hint: a correct hint returns the canonical cave, a wrong one falls through', () => {
+    const days = ['2026-08-05', '2026-08-08'];
+    for (const day of days) {
+      const canon = C.dailyCave(day);
+      const hinted = C.dailyCave(day, canon.attempt);
+      assert(hinted.cave.seed === canon.cave.seed && hinted.proof.ticks === canon.proof.ticks, day + ': hint changed the cave');
+      // attempts below the canonical one were all rejected by the scan, so
+      // hinting one MUST fall through to the canonical cave
+      const wrong = C.dailyCave(day, canon.attempt - 1);
+      assert(wrong.cave.seed === canon.cave.seed, day + ': rejected-attempt hint escaped the full scan');
+      const junk = C.dailyCave(day, 9999);
+      assert(junk.cave.seed === canon.cave.seed, day + ': out-of-range hint escaped');
+    }
+  });
+
   proof('day plumbing: numbering is stable and 1-based at launch', () => {
     assert(C.dayNumber('2026-08-03') === 1, 'launch day is not #1');
     assert(C.dayNumber('2026-08-04') === 2, 'day 2 wrong');
