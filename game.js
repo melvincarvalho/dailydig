@@ -179,6 +179,12 @@ addEventListener('keyup', (e) => {
   const dir = KEY2DIR[k];
   if (dir) { const i = heldStack.indexOf(dir); if (i >= 0) heldStack.splice(i, 1); }
 });
+// losing focus mid-hold means the keyup never arrives — drop everything,
+// or the digger walks into a rock while you answer a text
+addEventListener('blur', () => {
+  heldStack.length = 0; tapBuffer = 0; touchHeld = 0; tId = null;
+  for (const k in keys) keys[k] = false;
+});
 
 let tId = null, tax = 0, tay = 0;
 canvas.addEventListener('touchstart', (e) => {
