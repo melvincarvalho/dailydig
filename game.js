@@ -1098,7 +1098,7 @@ function drawBoard() {
   const PX = W / 2 - 300, PY = 56, PW = 600, PH = H - 112;
   panel(PX, PY, PW, PH);
   label('DIG CO. — THE BOARD', W / 2, PY + 34, 12, 'rgba(201,163,92,0.9)', 'center');
-  label(`SHIFT ${B.dayN} — ${B.day} · every time re-verified by replay on your device`, W / 2, PY + 56, 9, 'rgba(122,212,232,0.7)', 'center');
+  label(`SHIFT ${B.dayN} — ${B.day} · every time re-verified by replay on your device (see FAIRNESS.md)`, W / 2, PY + 56, 9, 'rgba(122,212,232,0.7)', 'center');
   brassRule(PX + 40, PY + 68, PW - 80);
   if (B.boardState === 'loading') label('RAISING THE RELAYS…', W / 2, PY + 130, 12, PAL.paper, 'center');
   else if (B.boardState === 'posting') label('POSTING YOUR SHIFT…', W / 2, PY + 130, 12, PAL.paper, 'center');

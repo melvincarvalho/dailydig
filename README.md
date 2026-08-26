@@ -21,6 +21,12 @@ and the first cave the built-in solver clears is the day's cave. Your device
 re-derives and re-verifies this independently — nobody can rig a daily, and
 every "I beat it in 1:42" claim is a tape any client can replay and check.
 
+## Fairness, in writing
+
+[FAIRNESS.md](FAIRNESS.md) states the three promises — same cave for
+everyone, every day provably beatable, every time claim a replayable tape —
+and exactly how your own device checks each one.
+
 ## The machine-verified core
 
 ```
