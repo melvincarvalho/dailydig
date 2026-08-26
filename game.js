@@ -655,7 +655,7 @@ function drawIntro() {
   label(`SHIFT ${B.dayN} — ${B.day}`, W / 2, H / 2 - 62, 14, PAL.ink, 'center');
   label('one cave · the whole world · every day', W / 2, H / 2 - 34, 12, 'rgba(214,192,156,0.8)', 'center');
   ctx.font = `700 15px Verdana, sans-serif`; ctx.fillStyle = PAL.paper; ctx.textAlign = 'center';
-  ctx.fillText(`Dig the quota of ${B.cave ? Math.ceil(B.cave.gems * CFG.quotaFrac) : '—'} gems, reach the exit, beat the clock.`, W / 2, H / 2 + 4);
+  ctx.fillText(`Dig the quota of ${B.proof ? B.proof.quota : '—'} gems, reach the exit, beat the clock.`, W / 2, H / 2 + 4);
   ctx.fillText(`The FOREMAN cleared it in ${fmtT(B.proof.ticks)} — race his ghost.`, W / 2, H / 2 + 30);
   if (B.ghostTapes && B.ghostTapes.length > 1) {
     ctx.fillStyle = '#ff8ad0';
@@ -733,6 +733,27 @@ function runShot(name, f) {
   B.cave = d.cave; B.proof = d.proof;
   B.ghostTapes = [{ label: 'FOREMAN', color: '#7ad4e8', tape: d.proof.tape }];
   if (name === 'intro') { B.time = 0.4; draw(); document.title = 'shot-ready'; return; }
+  if (name === 'map') {
+    B.w = newWorld(d.cave);
+    B.time = 30;
+    const s = Math.min(W / (CFG.CW * TS), (H - 40) / (CFG.CH * TS));
+    ctx.fillStyle = '#0a0705'; ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.translate((W - CFG.CW * TS * s) / 2, 40 + (H - 40 - CFG.CH * TS * s) / 2);
+    ctx.scale(s, s);
+    const MV = new Map();
+    for (let y = 0; y < CFG.CH; y++) for (let x = 0; x < CFG.CW; x++) {
+      const c = B.w.grid[y][x];
+      if (c !== T.SPACE && c !== T.PLAYER && c !== T.GNASH) drawCell(x, y, c, B.w, MV, 1);
+      if (c === T.GNASH) { ctx.fillStyle = '#ff5040'; ctx.fillRect(x * TS + 8, y * TS + 8, TS - 16, TS - 16); }
+      if (c === T.PLAYER) { ctx.fillStyle = '#7ad4e8'; ctx.fillRect(x * TS + 6, y * TS + 6, TS - 12, TS - 12); }
+    }
+    ctx.restore();
+    ctx.font = '700 16px Verdana'; ctx.textAlign = 'left'; ctx.fillStyle = '#e8c987';
+    ctx.fillText(`${B.day}  D${d.params ? d.params.D : '?'}  par ${d.proof.ticks}  quota ${d.proof.quota}  gems ${d.cave.gems}  vaults ${d.cave.setpieces ? d.cave.setpieces.vaults : 0} guards ${d.cave.setpieces ? d.cave.setpieces.guards : 0}`, 20, 26);
+    document.title = 'shot-ready';
+    return;
+  }
   startAttempt();
   B.banner = null;
   if (name === 'play') stepWorld(40, (w, i) => d.proof.tape[i] || 0);

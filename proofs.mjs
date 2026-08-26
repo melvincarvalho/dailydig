@@ -216,6 +216,36 @@ export async function runProofs(C) {
     assert(players <= 1, players + ' players in grid');
   });
 
+  proof('editorial: the weekday curve is real (Mon gentle, Sat mean)', () => {
+    const mon = C.dayParams('2026-08-03'), sat = C.dayParams('2026-08-08'), sun = C.dayParams('2026-08-09');
+    assert(mon.D === 1 && sat.D === 6 && sun.D === 3, 'D mapping wrong');
+    assert(mon.minPar < sat.minPar, 'Saturday not harder than Monday');
+    assert(mon.quotaFrac < sat.quotaFrac, 'Saturday quota not meaner');
+    assert(JSON.stringify(C.dayParams('2026-08-03')) === JSON.stringify(C.dayParams('2026-08-03')), 'params nondeterministic');
+  });
+
+  proof('editorial: dailies respect their own par floor', () => {
+    // these days are known to reject at least one candidate seed, so a
+    // dropped acceptance gate ships a different (thinner) cave here
+    for (const day of ['2026-08-05', '2026-08-07', '2026-08-08']) {
+      const d = C.dailyCave(day);
+      const P = C.dayParams(day);
+      assert(d.proof.ticks >= P.minPar, day + ' shipped under the floor (' + d.proof.ticks + ' < ' + P.minPar + ')');
+      assert(d.attempt > 0, day + ' no longer engages the gate — pick new proof days');
+    }
+  });
+
+  proof('generation: setpieces exist and are counted', () => {
+    let vaults = 0, guards = 0;
+    for (let s = 1; s <= 8; s++) {
+      const cave = C.generate(s * 1000 + 7);
+      assert(cave.setpieces, 'no setpiece ledger');
+      vaults += cave.setpieces.vaults; guards += cave.setpieces.guards;
+    }
+    assert(vaults >= 3, 'vaults barely ever build (' + vaults + '/8)');
+    assert(guards >= 3, 'guarded veins barely ever build (' + guards + '/8)');
+  });
+
   proof('day plumbing: numbering is stable and 1-based at launch', () => {
     assert(C.dayNumber('2026-08-03') === 1, 'launch day is not #1');
     assert(C.dayNumber('2026-08-04') === 2, 'day 2 wrong');
