@@ -3,7 +3,7 @@
 DAILY DIG is built to absorb a large number of critical passes. Every pass is
 run the same way: capture deterministic evidence (`?shot=` scenes,
 quarter-tick strips, 60-day playtests), critique it harshly against a
-commercial bar, fix as a single owner, re-verify (20 proofs, 14-mutant gate,
+commercial bar, fix as a single owner, re-verify (24 proofs, 19-mutant gate,
 60-day solvability contract), and land as an issue + PR. The foundation ships
 plain on purpose — the campaign is the product.
 
@@ -27,7 +27,7 @@ plain on purpose — the campaign is the product.
 | 16 | Launch polish | README, assets, games-page card | store-page quality | ✅ #31 → PR 32 |
 
 Every pass merged only after an adversarial review with one fix round; the
-reviewers caught genuine defects in twelve of the sixteen.
+reviewers caught genuine defects in fourteen of the sixteen.
 
 Rerun passes (aesthetics 2, animation 2, generation 2 …) are expected: a pass
 that plateaus below bar goes back in the queue.
@@ -36,7 +36,7 @@ that plateaus below bar goes back in the queue.
 
 - `?shot=intro|play|race|results` — deterministic scenes (`&day=` pins the cave)
 - `?shot=anim&f=N` — quarter-tick motion frames
-- `node proofs.mjs` — 20 machine-verified proofs
-- `node mutants.mjs` — 14-mutant gate (every injected bug must be caught)
+- `node proofs.mjs` — 24 machine-verified proofs
+- `node mutants.mjs` — 19-mutant gate (every injected bug must be caught)
 - `tools/playtest.sh` — 60-day solvability + replay-verification contract
 - `tools/capture.sh <port>` — the standard shot set

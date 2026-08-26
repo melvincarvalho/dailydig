@@ -30,8 +30,8 @@ and exactly how your own device checks each one.
 ## The machine-verified core
 
 ```
-node proofs.mjs      # 20 proofs — daily determinism, physics law, codec, anti-cheat
-node mutants.mjs     # 14 injected bugs, every one must be caught
+node proofs.mjs      # 24 proofs — daily determinism, physics law, codec, anti-cheat
+node mutants.mjs     # 19 injected bugs, every one must be caught
 tools/playtest.sh    # 60 consecutive days: solvable, replays verify
 ```
 
