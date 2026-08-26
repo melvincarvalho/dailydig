@@ -31,7 +31,7 @@ const B = {
   leadX: 0, leadY: 0, lastMove: 0,
   parts: [], fxRng: null, gemPunchAt: -9, exitOpenAt: -9,
   rookie: false, hintStage: 0, hintShownAt: 0, deathCause: null, touchVis: null,
-  calFrom: null, calCells: [],
+  calFrom: null, calCells: [], calStore: null,
   boomCols: new Set(),
   day: null, dayN: 1, cave: null, proof: null,
   w: null,                  // live world
@@ -262,6 +262,11 @@ canvas.addEventListener('mousedown', (e) => {
   // mousedown fires before click — a press on the SHARE button must not
   // restart, or the click handler wakes up in 'play' mode and does nothing
   if (B.mode === 'results' && B.result && shareZoneHit(e.clientX, e.clientY)) return;
+  // the top-left corner belongs to the ledger — let the click handler open it
+  const r = canvas.getBoundingClientRect();
+  const cx0 = (e.clientX - r.left) / r.width * W;
+  const cy0 = (e.clientY - r.top) / r.height * H;
+  if ((B.mode === 'intro' || B.mode === 'results') && cx0 < 170 && cy0 < 60) return;
   if (B.mode === 'intro' || (B.mode === 'results' && !resultsLocked())) startAttempt();
 });
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
@@ -945,7 +950,7 @@ function drawCalendar() {
   const PX = W / 2 - 360, PY = 44, PW = 720, PH = H - 88;
   panel(PX, PY, PW, PH);
   label('DIG CO. — THE LEDGER', W / 2, PY + 34, 12, 'rgba(201,163,92,0.9)', 'center');
-  const s = store();
+  const s = B.calStore || store();   // shots inject a synthetic store; the real profile is never touched
   const hist = s.history || {};
   // the cabinet
   const counts = { 'SHIFT BOSS': 0, GOLD: 0, SILVER: 0, BRONZE: 0 };
@@ -1394,7 +1399,7 @@ function runShot(name, f) {
     for (let i = 1; i <= 6; i++) {
       hist[dayString(t0 - i * 86400000)] = { ticks: 180 + i * 31, attempts: 1 + (i % 3), medal: meds[i - 1] };
     }
-    try { localStorage.setItem('dailydig', JSON.stringify({ history: hist, streak: 4, bestStreak: 9, lastClear: dayString(t0 - 86400000) })); } catch {}
+    B.calStore = { history: hist, streak: 4, bestStreak: 9, lastClear: dayString(t0 - 86400000) };
     B.mode = 'calendar';
     B.calFrom = 'intro';
     B.time = 1;
