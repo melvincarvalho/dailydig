@@ -30,8 +30,8 @@ and exactly how your own device checks each one.
 ## The machine-verified core
 
 ```
-node proofs.mjs      # 20 proofs — daily determinism, physics law, codec, anti-cheat
-node mutants.mjs     # 14 injected bugs, every one must be caught
+node proofs.mjs      # 24 proofs — daily determinism, physics law, codec, anti-cheat
+node mutants.mjs     # 19 injected bugs, every one must be caught
 tools/playtest.sh    # 60 consecutive days: solvable, replays verify
 ```
 
@@ -40,13 +40,26 @@ it. The mechanics are original: TNT crates, timber props holding rock
 columns, gnashers — dig/gravity/gems in the classic family, tuned for
 speedrunning.
 
+## What's in the shaft
+
+- **The race**: the Foreman's ghost digs beside you (name-tagged, breadcrumbed,
+  edge-arrowed when off-screen); share links carry YOUR ghost to anyone.
+- **The board**: a global daily leaderboard over Nostr where every claimed
+  time is re-verified by replaying its tape on your device. No accounts.
+- **The ledger**: a five-week calendar of your shifts, the medal cabinet,
+  and every past day playable from the archive.
+- **The paperwork**: daily work orders with the weekday difficulty stamped
+  (gentle Monday → mean Saturday), medal pay tables, live pace-vs-Foreman.
+- **The craft**: buffered input, event-driven particles, a scheduled mining
+  groove, lantern-lit earth, coached deaths, rookie onboarding that retires
+  itself, PWA install + offline dailies, reduced-motion support.
+
 ## The campaign
 
-The foundation ships plain. [PASSES.md](PASSES.md) is the roadmap: 16+
-harsh critical passes (feel, generation, art, animation, sound, onboarding,
-share, ghosts, meta, mobile, Nostr board, performance, fairness,
-accessibility), each landed as an issue + PR with the full harness green.
-[prompt.md](prompt.md) is the prompt that produced all of this.
+Sixteen critical passes built this, each an issue + PR with the harness
+green and an adversarial reviewer who caught real defects in most of them
+— see [PASSES.md](PASSES.md) for the full trail and
+[prompt.md](prompt.md) for the prompt that produced it all.
 
 ## License
 
