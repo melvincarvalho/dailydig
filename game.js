@@ -31,6 +31,7 @@ const B = {
   leadX: 0, leadY: 0, lastMove: 0,
   parts: [], fxRng: null, gemPunchAt: -9, exitOpenAt: -9,
   rookie: false, hintStage: 0, hintShownAt: 0, deathCause: null, touchVis: null,
+  calFrom: null, calCells: [], calStore: null,
   boomCols: new Set(),
   day: null, dayN: 1, cave: null, proof: null,
   w: null,                  // live world
@@ -179,7 +180,9 @@ addEventListener('keydown', (e) => {
   if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
   audio();
   if (k === 'm') { B.muted = !B.muted; if (master) master.gain.value = B.muted ? 0 : 0.4; }
-  if (B.mode === 'intro' && (e.key === ' ' || e.key === 'Enter')) startAttempt();
+  if ((B.mode === 'intro' || B.mode === 'results') && k === 'a') { B.calFrom = B.mode; B.mode = 'calendar'; }
+  else if (B.mode === 'calendar' && (e.key === 'Escape' || k === 'a')) { B.mode = B.calFrom || 'intro'; }
+  else if (B.mode === 'intro' && (e.key === ' ' || e.key === 'Enter')) startAttempt();
   else if (B.mode === 'results' && (e.key === ' ' || e.key === 'Enter') && !resultsLocked()) startAttempt();
   else if (B.mode === 'results' && k === 'c') doShare();
   else if (B.mode === 'play' && k === 'r') startAttempt();
@@ -207,6 +210,23 @@ function shareZoneHit(clientX, clientY) {
 let tId = null, tax = 0, tay = 0;
 canvas.addEventListener('touchstart', (e) => {
   e.preventDefault(); audio();
+  {
+    const t0 = e.changedTouches[0];
+    const r0 = canvas.getBoundingClientRect();
+    const cx0 = (t0.clientX - r0.left) / r0.width * W;
+    const cy0 = (t0.clientY - r0.top) / r0.height * H;
+    if (B.mode === 'calendar') {
+      for (const c of B.calCells) {
+        if (cx0 > c.x && cx0 < c.x + c.w && cy0 > c.y && cy0 < c.y + c.h) {
+          location.href = location.pathname + (c.day === dayString(Date.now()) ? '' : '?day=' + c.day);
+          return;
+        }
+      }
+      B.mode = B.calFrom || 'intro';
+      return;
+    }
+    if ((B.mode === 'intro' || B.mode === 'results') && cx0 < 170 && cy0 < 60) { B.calFrom = B.mode; B.mode = 'calendar'; return; }
+  }
   if (B.mode !== 'play') {
     const t0 = e.changedTouches[0];
     // preventDefault above suppresses the synthesized click, so the button
@@ -242,6 +262,11 @@ canvas.addEventListener('mousedown', (e) => {
   // mousedown fires before click — a press on the SHARE button must not
   // restart, or the click handler wakes up in 'play' mode and does nothing
   if (B.mode === 'results' && B.result && shareZoneHit(e.clientX, e.clientY)) return;
+  // the top-left corner belongs to the ledger — let the click handler open it
+  const r = canvas.getBoundingClientRect();
+  const cx0 = (e.clientX - r.left) / r.width * W;
+  const cy0 = (e.clientY - r.top) / r.height * H;
+  if ((B.mode === 'intro' || B.mode === 'results') && cx0 < 170 && cy0 < 60) return;
   if (B.mode === 'intro' || (B.mode === 'results' && !resultsLocked())) startAttempt();
 });
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
@@ -756,7 +781,7 @@ function draw() {
   ctx.fillStyle = '#0a0705'; ctx.fillRect(0, 0, W, H);
   if (B.mode === 'broken') { drawBroken(); return; }
   const w = B.w;
-  if (!w) { drawIntro(); return; }
+  if (!w) { if (B.mode === 'calendar') drawCalendar(); else drawIntro(); return; }
 
   const lerp = Math.max(0, Math.min(1, B.tickAcc / CFG.TICK));
   const MV = new Map();
@@ -913,6 +938,64 @@ function draw() {
   }
   if (B.mode === 'results') drawResults();
   if (B.mode === 'intro') drawIntro();
+  if (B.mode === 'calendar') drawCalendar();
+}
+
+// ---------------------------------------------------------------------------
+// the ledger: five weeks of shifts, the medal cabinet, the playable archive
+const MEDAL_COL = { 'SHIFT BOSS': '#7ad4e8', GOLD: '#ffd76a', SILVER: '#c8c8d0', BRONZE: '#c9885c' };
+function drawCalendar() {
+  ctx.fillStyle = 'rgba(10,7,4,0.85)';
+  ctx.fillRect(0, 0, W, H);
+  const PX = W / 2 - 360, PY = 44, PW = 720, PH = H - 88;
+  panel(PX, PY, PW, PH);
+  label('DIG CO. — THE LEDGER', W / 2, PY + 34, 12, 'rgba(201,163,92,0.9)', 'center');
+  const s = B.calStore || store();   // shots inject a synthetic store; the real profile is never touched
+  const hist = s.history || {};
+  // the cabinet
+  const counts = { 'SHIFT BOSS': 0, GOLD: 0, SILVER: 0, BRONZE: 0 };
+  for (const d of Object.values(hist)) if (counts[d.medal] !== undefined) counts[d.medal]++;
+  let cx2 = PX + 92;
+  for (const [nm, n2] of Object.entries(counts)) {
+    label(nm, cx2, PY + 66, 8, MEDAL_COL[nm], 'center');
+    value(String(n2), cx2, PY + 88, 18, MEDAL_COL[nm], 'center');
+    cx2 += 140;
+  }
+  label('BEST STREAK', PX + PW - 84, PY + 66, 8, PAL.good, 'center');
+  value(String(s.bestStreak || 0), PX + PW - 84, PY + 88, 18, PAL.good, 'center');
+  brassRule(PX + 40, PY + 104, PW - 80);
+  // five weeks, Monday-led
+  const names = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+  for (let i = 0; i < 7; i++) label(names[i], PX + 88 + i * 88, PY + 130, 9, 'rgba(214,192,156,0.6)', 'center');
+  B.calCells = [];
+  const today = B.shotMode ? B.day : dayString(Date.now());
+  const t0 = Date.parse(today + 'T00:00:00Z');
+  const dow0 = (new Date(t0).getUTCDay() + 6) % 7;   // Monday = 0
+  const gridStart = t0 - (dow0 + 28) * 86400000;
+  for (let i2 = 0; i2 < 35; i2++) {
+    const dms = gridStart + i2 * 86400000;
+    const day = dayString(dms);
+    const col = i2 % 7, row = (i2 / 7) | 0;
+    const cellX = PX + 88 + col * 88, cellY = PY + 158 + row * 74;
+    const n3 = dayNumber(day);
+    const playable = n3 >= 1 && dms <= t0;
+    const h2 = hist[day];
+    const isToday = day === today;
+    ctx.fillStyle = isToday ? 'rgba(122,212,232,0.12)' : h2 ? 'rgba(201,163,92,0.1)' : 'rgba(255,255,255,0.03)';
+    ctx.beginPath(); ctx.roundRect(cellX - 36, cellY - 26, 72, 60, 8); ctx.fill();
+    if (isToday) { ctx.strokeStyle = 'rgba(122,212,232,0.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.roundRect(cellX - 36, cellY - 26, 72, 60, 8); ctx.stroke(); }
+    label(playable ? '#' + n3 : '—', cellX, cellY - 8, 9, playable ? 'rgba(214,192,156,0.8)' : 'rgba(214,192,156,0.25)', 'center');
+    if (h2 && playable) {
+      ctx.fillStyle = MEDAL_COL[h2.medal] || PAL.paper;
+      ctx.beginPath(); ctx.roundRect(cellX - 24, cellY + 2, 48, 16, 5); ctx.fill();
+      ctx.font = `700 9px ${MONO}`; ctx.textAlign = 'center'; ctx.fillStyle = '#1a1206';
+      ctx.fillText(fmtT(h2.ticks), cellX, cellY + 14);
+    } else if (playable) {
+      label(isToday ? 'TODAY' : 'DIG IT', cellX, cellY + 14, 8, isToday ? PAL.blueprint : 'rgba(214,192,156,0.45)', 'center');
+    }
+    if (playable) B.calCells.push({ x: cellX - 36, y: cellY - 26, w: 72, h: 60, day });
+  }
+  label('TAP A SHIFT TO DIG ITS CAVE — A OR ESC TO CLOSE', W / 2, PY + PH - 20, 10, 'rgba(214,192,156,0.6)', 'center');
 }
 
 // ---------------------------------------------------------------------------
@@ -1191,6 +1274,7 @@ function drawIntro() {
     label(IS_TOUCH ? 'TAP TO CLOCK IN' : 'SPACE TO CLOCK IN', W / 2, PY + PH - 74, 18, '#ffffff', 'center');
   }
   label(IS_TOUCH ? 'DRAG ANYWHERE TO DIG' : 'WASD / ARROWS DIG · R RESTART · M MUTE', W / 2, PY + PH - 44, 10, 'rgba(214,192,156,0.7)', 'center');
+  label(IS_TOUCH ? 'THE LEDGER: tap top-left corner' : 'A — THE LEDGER (archive + medals)', W / 2, PY + PH - 62, 10, 'rgba(201,163,92,0.75)', 'center');
   label('NEXT SHIFT IN ' + nextShiftIn(), W / 2, PY + PH - 22, 9, 'rgba(122,212,232,0.6)', 'center');
 }
 function drawResults() {
@@ -1258,6 +1342,20 @@ function drawBroken() {
 
 // results-screen share tap zone (touch)
 canvas.addEventListener('click', (e) => {
+  const r0 = canvas.getBoundingClientRect();
+  const cx0 = (e.clientX - r0.left) / r0.width * W;
+  const cy0 = (e.clientY - r0.top) / r0.height * H;
+  if (B.mode === 'calendar') {
+    for (const c of B.calCells) {
+      if (cx0 > c.x && cx0 < c.x + c.w && cy0 > c.y && cy0 < c.y + c.h) {
+        location.href = location.pathname + (c.day === dayString(Date.now()) ? '' : '?day=' + c.day);
+        return;
+      }
+    }
+    B.mode = B.calFrom || 'intro';
+    return;
+  }
+  if ((B.mode === 'intro' || B.mode === 'results') && cx0 < 170 && cy0 < 60) { B.calFrom = B.mode; B.mode = 'calendar'; return; }
   if (B.mode !== 'results' || !B.result) return;
   if (shareZoneHit(e.clientX, e.clientY)) { doShare(); B.suppressRestart = B.time; }
 });
@@ -1294,6 +1392,19 @@ function runShot(name, f) {
   B.ghostTapes = [{ label: 'FOREMAN', color: '#7ad4e8', tape: d.proof.tape }];
   B.rookie = false;         // shots ignore the profile's history; only onboard opts in
   if (name === 'intro') { B.time = 0.4; draw(); document.title = 'shot-ready'; return; }
+  if (name === 'ledger') {
+    const hist = {};
+    const t0 = Date.parse(B.day + 'T00:00:00Z');
+    const meds = ['SHIFT BOSS', 'GOLD', 'SILVER', 'BRONZE', 'GOLD', 'SILVER'];
+    for (let i = 1; i <= 6; i++) {
+      hist[dayString(t0 - i * 86400000)] = { ticks: 180 + i * 31, attempts: 1 + (i % 3), medal: meds[i - 1] };
+    }
+    B.calStore = { history: hist, streak: 4, bestStreak: 9, lastClear: dayString(t0 - 86400000) };
+    B.mode = 'calendar';
+    B.calFrom = 'intro';
+    B.time = 1;
+    draw(); document.title = 'shot-ready'; return;
+  }
   if (name === 'onboard') {
     B.rookie = true;
     startAttempt();
