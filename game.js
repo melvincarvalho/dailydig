@@ -224,6 +224,7 @@ function startAttempt() {
   B.tape = [];
   B.attempts++;
   B.time = 0; B.tickAcc = 0;
+  B.comboN = 0; B.comboAt = -9;
   B.ghosts = B.ghostTapes.map((g) => ({ ...g, world: newWorld(B.cave), i: 0, done: false, trail: [], beaten: false, finished: false }));
   B.mode = 'play';
   B.banner = { text: `SHIFT ${B.dayN}`, sub: B.day + ' — quota ' + B.w.quota, t: 1.6 };
@@ -544,7 +545,7 @@ function update(dt) {
       musicStop();
     }
   }
-  if (B.tape.length >= CFG.replayCap) { B.mode = 'results'; B.result = null; }
+  if (B.tape.length >= CFG.replayCap) { B.mode = 'results'; B.result = null; musicStop(); }
   tickParts(dt);
   snapCam(false);
 }
